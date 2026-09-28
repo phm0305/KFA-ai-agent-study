@@ -228,8 +228,8 @@ raw/
 *.csv
 *.pkl
 
-# 단, 공용 데이터셋은 예외로 올림
-!data/panel_monthly.parquet
+# 단, backup/ 안의 csv는 예외로 올림 (Gemini 안 될 때 쓰는 백업 결과)
+!backup/**/*.csv
 
 # Jupyter 잔여물
 .ipynb_checkpoints/
