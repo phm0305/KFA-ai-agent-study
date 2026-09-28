@@ -216,3 +216,21 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# 절대 올리면 안 되는 것
+.env
+*.key
+secrets.json
+
+# 용량 큰 원본 데이터
+private/
+raw/
+*.csv
+*.pkl
+
+# 단, 공용 데이터셋은 예외로 올림
+!data/panel_monthly.parquet
+
+# Jupyter 잔여물
+.ipynb_checkpoints/
+__pycache__/
