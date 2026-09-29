@@ -190,11 +190,18 @@ https://colab.research.google.com/github/phm0305/KFA-ai-agent-study/blob/main/no
 
 ## 10. 환경점검 노트북 실행하기
 
-> 🚧 **준비 중이에요.** 준비되면 톡방에 알려드릴게요.
+환경점검 노트북을 한 번 실행해서, 키와 라이브러리가 잘 되는지 확인하는 단계예요.
 
-`setup/` 폴더에 올라올 환경점검 노트북을 한 번 실행해서, 키와 라이브러리가 잘 되는지 확인하는 단계예요.
+1. 아래 주소를 열어요.
+   ```
+   https://colab.research.google.com/github/phm0305/KFA-ai-agent-study/blob/main/setup/00_setup_check.ipynb
+   ```
+2. **런타임 → 모두 실행** 을 눌러요.
+3. 맨 아래 **결과 요약** 표에서 ✅ / ⏭ / ❌ 를 확인해요. ❌가 있으면 표에 적힌 번호를 보고 고쳐요.
+4. 노트북 맨 아래 안내대로 내 레포에 `setup_check.ipynb` 로 올려요.
 
-- 노트북 주소: (준비되면 여기에 적을게요)
+> 키를 등록하기 전에 돌려도 괜찮아요. 키 항목은 ⏭(아직 안 함)로 나오는 게 정상이에요.
+> 키를 등록한 뒤 다시 돌려서, 같은 이름으로 또 올리면 돼요.
 
 ---
 
@@ -210,7 +217,7 @@ https://colab.research.google.com/github/phm0305/KFA-ai-agent-study/blob/main/no
 - [ ] DART API 키 발급
 - [ ] Gemini API 키 발급
 - [ ] Colab Secrets에 `DART_API_KEY`, `GEMINI_API_KEY` 등록
-- [ ] 환경점검 노트북 실행 (준비되면 안내)
+- [ ] 환경점검 노트북 실행 → 내 레포에 `setup_check.ipynb` 로 올리기
 
 ---
 
