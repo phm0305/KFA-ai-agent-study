@@ -3,8 +3,8 @@
 처음 오신 분이 혼자 따라 하면 되는 가이드예요. 위에서부터 순서대로 하면 30분 정도 걸려요.
 
 > **📅 마감**
-> - GitHub 가입 · 내 레포 만들기 · Colab 연결: **10/5 (2회차) 전까지**
-> - API 키 2개 발급 · 등록: **10/26 전까지**
+> - GitHub 가입 · 내 레포 만들기 · Colab 연결: **OT 후 첫 조 모임 전까지**
+> - API 키 2개 발급 · 등록: **2회차 전까지 (날짜는 톡방 공지)**
 
 ---
 
@@ -47,11 +47,17 @@
 1. GitHub에 로그인한 상태에서 오른쪽 위 **+** → **New repository** 를 눌러요.
 2. 아래처럼 채워요.
    - **Repository name**: `kfa-ai-agent` (모두 같은 이름으로 통일해요)
-   - **Public** 선택
-   - **Add a README file** 체크 ✅
+   - **Add README** 스위치를 **On** 으로 켜요 ✅
+   - 공개 범위를 **Public** 으로 바꿔요
 
-> **⚠️ "Add a README file"은 꼭 체크하세요!**
-> 체크하지 않으면 레포가 텅 빈 상태로 만들어져서, 나중에 Colab에서 저장할 때 내 레포가 목록에 안 나와요.
+> **⚠️ 공개 범위 기본값이 Private이에요. 반드시 Public으로 바꾸세요!**
+> Private으로 두면 다른 사람이 내 레포를 볼 수 없어서 제출이 안 돼요.
+
+> **⚠️ "Add README"는 꼭 On으로 켜세요!**
+> 켜지 않으면(Off) 레포가 텅 빈 상태로 만들어져서, 나중에 Colab에서 저장할 때 내 레포가 목록에 안 나와요.
+
+> **⚠️ 레포 이름에 한글을 넣지 마세요!**
+> 한글을 넣으면 지워져요. (예: "형민-KFA-AI-AGENT" → "--KFA-AI-AGENT") 이름은 `kfa-ai-agent` 그대로 쓰세요.
 
 3. 맨 아래 **Create repository** 를 눌러요.
 4. 만들어진 페이지의 주소창 주소를 복사해서 **스터디 톡방에 제출**해 주세요.
@@ -97,6 +103,10 @@ https://colab.research.google.com/github/phm0305/KFA-ai-agent-study/blob/main/no
 
 회차별로 열 주소는 톡방이나 회차 자료에 따로 안내해 드릴게요.
 
+**링크를 열었을 때 이렇게 보일 수 있어요**
+- 노트북이 바로 안 열리고 **"노트 열기"** 창(GitHub 탭, 파일 목록)이 뜰 수 있어요. 목록에 있는 **파일 이름을 클릭**하세요.
+- **"이 노트북은 Google에서 작성하지 않았습니다"** 경고창이 뜨면 **"무시하고 계속"** 을 누르세요.
+
 > **⚠️ 열자마자 "파일 → 드라이브에 사본 저장"부터 하세요!**
 > 템플릿을 그냥 열어서 작업하면 **저장이 안 돼요.** 창을 닫으면 작업한 게 다 사라져요.
 > 사본을 만들면 내 구글 드라이브에 저장되고, 그다음부터는 자동으로 저장돼요.
@@ -116,12 +126,14 @@ https://colab.research.google.com/github/phm0305/KFA-ai-agent-study/blob/main/no
 > 1단계 결과물(문서)은 노트북이 아니니까 아래 **'노트북이 만든 파일 올리기'** 방법으로 올려요.
 
 ### 노트북 올리기
-1. Colab에서 **파일 → GitHub에 사본 저장** 을 눌러요.
+1. Colab에서 **파일 → GitHub에 사본 저장** 을 눌러요. **"GitHub으로 복사"** 라는 저장 창이 떠요.
 2. **저장소**: 내 레포 `사용자이름/kfa-ai-agent` 를 골라요.
+   - **⚠️ 저장소 칸에 다른 레포가 기본으로 선택돼 있을 수 있어요. 반드시 내 `kfa-ai-agent` 로 바꾸세요.**
    - 옆의 두 번째 칸(`main`)은 그대로 두세요.
-3. **파일 경로**: 저장될 파일 이름이에요. 알아보기 쉬운 이름인지 확인해요. 예: `step1.ipynb`
-   - 드라이브 사본은 이름 앞에 `사본_` 또는 `Copy of` 가 붙어 있어요. 올릴 때 지워 주세요. 예: `사본_step1.ipynb` → `step1.ipynb`
-4. **커밋 메시지**: 무엇을 저장하는지 한 줄로 적어요. 예: `1단계 완료`
+   - 레포를 방금 만들었다면 목록에 안 뜰 수 있어요. 창을 닫고 Colab을 새로고침(**F5**)한 뒤 다시 열어 보세요.
+3. **파일 경로**: 저장될 파일 이름이에요. 칸에 적힌 내용을 **전부 지우고** 새 이름을 적어요. 예: `step1.ipynb`
+   - 한국어 Colab에서는 드라이브 사본 이름이 `xxx의_사본.ipynb` 형태예요. (실제 예: `00_setup_check_ipynb의_사본.ipynb`) 그대로 두지 말고 지우고 새로 적어 주세요.
+4. **변경사항 설명 메시지**: 무엇을 저장하는지 한 줄로 적어요. 예: `1단계 완료`
 5. "Colab 링크 포함" 체크박스는 그대로 두세요.
 6. **확인** 을 누르면 끝이에요. 내 레포 페이지에서 파일이 올라갔는지 확인해 보세요.
 
@@ -135,21 +147,27 @@ https://colab.research.google.com/github/phm0305/KFA-ai-agent-study/blob/main/no
 
 ---
 
-## 8. API 키 2개 발급하기 (10/26 전까지)
+## 8. API 키 2개 발급하기 (2회차 전까지)
 
-> 1단계에서는 필요 없어요. 10/26 전까지만 준비하면 돼요.
+> 1단계에서는 필요 없어요. 2회차 전까지만 준비하면 돼요. (날짜는 톡방 공지)
 
 **API 키**는 내 코드가 외부 서비스(공시 데이터, AI)를 쓸 수 있게 해 주는 "출입증 비밀번호"예요.
 
 ### DART (공시 데이터)
-1. [opendart.fss.or.kr](https://opendart.fss.or.kr) 에 들어가서 회원가입해요.
-2. **인증키 신청** 메뉴에서 신청해요.
-3. 이메일 인증을 마치면 **인증키 신청/관리 → 오픈API 이용현황** 에서 키를 확인할 수 있어요.
+1. [opendart.fss.or.kr](https://opendart.fss.or.kr) 에 들어가요. DART는 **회원가입이 따로 없어요.**
+2. **인증키 신청** 을 해요.
+3. 이메일로 온 **인증을 마쳐야** 로그인이 돼요.
+4. 로그인한 뒤 **오픈API 이용현황** 메뉴에서 키를 확인해요.
 
 ### Gemini (AI)
-1. [aistudio.google.com](https://aistudio.google.com) 에 구글 계정으로 로그인해요.
-2. **Get API key → API 키 만들기(Create API key)** 를 눌러요.
-3. 무료예요. **카드 등록 없이** 발급돼요.
+1. [aistudio.google.com](https://aistudio.google.com) 에 구글 계정으로 접속해요.
+2. 화면 **왼쪽 맨 아래**, 계정 정보 바로 위의 🔑(열쇠) 아이콘을 눌러요.
+3. **오른쪽 위** 의 **API 키 만들기** 를 눌러요.
+4. **새 키 만들기** 창이 뜨면 **아무것도 바꾸지 말고** **키 만들기** 를 눌러요.
+5. 만들어진 키를 복사해요.
+6. 무료예요. **카드 등록 없이** 발급돼요.
+
+> Gemini 키는 이제 **`AQ.`** 로 시작해요. (예전에는 `AIza`로 시작했어요.) **`AQ.` 로 시작하면 정상이에요.**
 
 > **키는 1인 1개예요.** 다른 사람과 공유하지 마세요. 키가 새면 다른 사람이 내 이름으로 쓸 수 있어요.
 
@@ -169,6 +187,10 @@ https://colab.research.google.com/github/phm0305/KFA-ai-agent-study/blob/main/no
 
 3. 각 키 옆의 **노트북 액세스** 스위치를 켜요.
 
+> **⚠️ 키를 넣고 나서 노트북 액세스 스위치를 꼭 켜세요!**
+> 스위치는 키 줄의 **맨 왼쪽** 에 있어요. **회색 ✕ = 꺼짐**, **파란색 = 켜짐** 이에요. 꺼져 있으면 키를 넣어도 노트북이 못 읽어요.
+
+- **이름 칸이 좁아서** `GEMINI_AP`처럼 잘려 보일 수 있어요. 이름 칸을 클릭해서 끝까지 맞게 적혔는지 확인하세요.
 - 새 노트북을 열 때마다 **노트북 액세스를 다시 켜야 할 수 있어요.** 키를 못 읽는다고 나오면 여기부터 확인하세요.
 
 > **🚫 절대 하지 마세요**
@@ -176,7 +198,7 @@ https://colab.research.google.com/github/phm0305/KFA-ai-agent-study/blob/main/no
 >
 > ❌ 이렇게 쓰면 안 돼요
 > ```python
-> api_key = "AIzaSyXXXXXXXXXXXXXXXX"
+> api_key = "AQ.AbXXXXXXXXXXXXXXXX"
 > ```
 > ✅ 이렇게 Secrets에서 불러와요
 > ```python
@@ -185,6 +207,8 @@ https://colab.research.google.com/github/phm0305/KFA-ai-agent-study/blob/main/no
 > ```
 >
 > 키를 `print()`로 출력하는 것도 안 돼요. GitHub에 올릴 때 **출력된 내용도 같이 올라가요.**
+>
+> 키가 보이는 화면을 **캡처해서 톡방에 올리지 마세요.**
 
 ---
 
@@ -192,7 +216,7 @@ https://colab.research.google.com/github/phm0305/KFA-ai-agent-study/blob/main/no
 
 환경점검 노트북을 한 번 실행해서, 키와 라이브러리가 잘 되는지 확인하는 단계예요.
 
-1. 아래 주소를 열어요.
+1. 아래 주소를 열어요. ("노트 열기" 창이나 "Google에서 작성하지 않았습니다" 경고가 뜨면 6번의 안내대로 하세요.)
    ```
    https://colab.research.google.com/github/phm0305/KFA-ai-agent-study/blob/main/setup/00_setup_check.ipynb
    ```
@@ -207,13 +231,13 @@ https://colab.research.google.com/github/phm0305/KFA-ai-agent-study/blob/main/no
 
 ## 11. 체크리스트
 
-### 10/5 (2회차) 전까지
+### OT 후 첫 조 모임 전까지
 - [ ] GitHub 가입
-- [ ] 내 레포 `kfa-ai-agent` 만들기 (Public, README 체크)
+- [ ] 내 레포 `kfa-ai-agent` 만들기 (Public, Add README On)
 - [ ] 레포 주소 톡방에 제출
 - [ ] Colab과 GitHub 연결 (Authorize)
 
-### 10/26 전까지
+### 2회차 전까지 (날짜는 톡방 공지)
 - [ ] DART API 키 발급
 - [ ] Gemini API 키 발급
 - [ ] Colab Secrets에 `DART_API_KEY`, `GEMINI_API_KEY` 등록
@@ -224,10 +248,16 @@ https://colab.research.google.com/github/phm0305/KFA-ai-agent-study/blob/main/no
 ## 12. 자주 묻는 것
 
 **Q. Colab에서 GitHub에 저장하려는데 내 레포가 안 보여요.**
-A. 레포를 만들 때 "Add a README file"을 체크하지 않은 경우예요. GitHub에서 내 레포 페이지로 가서 **Add a README** 버튼을 눌러 README를 하나 만들어 주세요. 그다음 다시 시도하면 보여요.
+A. 레포를 만들 때 "Add README"를 On으로 켜지 않은 경우일 수 있어요. GitHub에서 내 레포 페이지로 가서 **Add a README** 버튼을 눌러 README를 하나 만들어 주세요. 그다음 다시 시도하면 보여요. 레포를 방금 만들었다면 Colab을 새로고침(F5)한 뒤 다시 열어 보세요.
 
 **Q. 키를 못 읽는다고 나와요.**
 A. Colab 왼쪽 🔑 아이콘에서 해당 키의 **노트북 액세스**가 켜져 있는지 확인하세요. 키 이름이 `DART_API_KEY`, `GEMINI_API_KEY`와 글자 하나까지 똑같은지도 확인하세요.
+
+**Q. DART 인증 메일이 안 와요.**
+A. 먼저 **스팸함**을 확인하세요. 없으면 시간이 조금 지난 뒤 다시 시도해 보세요. 계속 안 오면 DART 고객센터에 문의하세요.
+
+**Q. Gemini 호출에서 503이 떠요.**
+A. 구글 서버가 잠깐 붐비는 거예요. **내 설정 문제가 아니에요.** 잠시 뒤 다시 실행하세요.
 
 **Q. 런타임이 끊겨요.**
 A. **런타임**은 Colab이 코드를 돌리는 컴퓨터예요. 무료 Colab은 한동안 가만히 두면 연결이 끊기는데, 정상이에요. 다시 연결한 뒤 **런타임 → 모두 실행** 을 누르면 돼요.
