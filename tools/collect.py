@@ -3,6 +3,27 @@
 Every source, whatever its collection level (1 API, 2 library, 3 file,
 4 crawling, 5 manual), ends in the same record table via finalize().
 Member-facing messages are Korean on purpose; identifiers stay English.
+
+[한국어 목차] 이 셀은 고치지 않고 실행만 해요. 아래는 어떤 함수가 어디에 쓰이는지예요.
+
+  공통 출구 (모든 단계가 마지막에 거치는 곳)
+    collect_table()     받아온 표 → 공통 표 15칸. 내 소스 함수의 마지막 줄은 항상 이것
+    finalize()          꼬리표 붙이기·숫자/날짜 정리·형식 통과/확인 필요 판정 (collect_table이 불러 씀)
+    long_from_table()   칸마다 항목이 하나씩인 넓은 표 → 숫자 하나 = 한 줄 (collect_table이 불러 씀)
+    check_records()     공통 표 모양이 맞는지 검사하고 요약 출력
+    save_records()      CSV 두 개로 저장 (전부 / 확인 필요만)
+    run_step()          예시 하나를 실행하고 ✅ ⏭ ❌ 요약표에 한 줄 남김 (실패해도 멈추지 않음)
+    step_summary()      요약표 보여주기
+
+  1단계 공식 API      read_json_table() · collect_dart() · collect_ecos() · get_key()
+  2단계 라이브러리     (도구 없음: 라이브러리가 준 표를 collect_table에 바로)
+  3단계 파일          read_table()
+  4단계 크롤링        read_html_table() · robots_allowed() · find_col()
+  5단계 수동 입력      (pd.DataFrame으로 직접) · mount_drive() · read_source_cards() · collect_from_cards()
+
+  정리 도구           to_number() 숫자 바꾸기 · to_date() 날짜 바꾸기 · is_blank() 빈칸 판단
+  약속된 값           NOT_APPLICABLE = "해당 없음" · SAME_AS_DATE = 공시일을 기준일과 같게
+  멈춤 신호           SkipStep = 준비 부족이라 건너뜀(⏭) · CollectError = 실패(❌), 이유를 쉬운 말로
 """
 
 import io
@@ -42,18 +63,22 @@ KST = timezone(timedelta(hours=9))
 USER_AGENT = "KFA-AI-agent-study/0.2 (+https://github.com/phm0305/KFA-ai-agent-study)"
 
 
+# 실패(❌). 메시지가 조원 화면에 그대로 나가서 키·전체 주소를 넣지 않아요
 class CollectError(Exception):
     """Shown to members verbatim, so it must never contain keys or full URLs."""
 
 
+# 준비가 안 돼서 건너뜀(⏭). 키 없음, 설정 꺼짐, 사이트가 막음 등
 class SkipStep(Exception):
     pass
 
 
+# 지금 한국 시각 (수집 시각 칸에 씀)
 def now_kst():
     return datetime.now(KST).strftime("%Y-%m-%d %H:%M")
 
 
+# 빈칸인지 판단 (None, 빈 글자, NaN 모두 빈칸)
 def is_blank(value):
     if value is None:
         return True
@@ -65,6 +90,7 @@ def is_blank(value):
         return False
 
 
+# '1,234' '(500)' '△500' '12.5%' → 숫자. 못 바꾸면 (None, 이유)
 def to_number(value):
     if is_blank(value):
         return None, None
@@ -104,6 +130,7 @@ _YEAR = re.compile(r"(\d{4})\s*년?")
 _TIME_SUFFIX = re.compile(r"[ T]\d{1,2}:\d{2}(:\d{2})?(\.\d+)?$")
 
 
+# '2026.6.30.' '20260630' '2026년 6월' '2026Q2' 등 → 표준 날짜 글자. 못 바꾸면 (None, 이유)
 def to_date(value):
     """Normalize to YYYY-MM-DD, YYYY-MM, YYYYQn or YYYY; anything else is a problem."""
     if is_blank(value):
@@ -134,6 +161,7 @@ def to_date(value):
     return None, f"날짜 모양을 모름: '{value}'"
 
 
+# 이름에 그 글자가 들어간 첫 칸 찾기 (크롤링 표처럼 칸 이름이 조금씩 바뀔 때)
 def find_col(table, keyword):
     for col in table.columns:
         if keyword in str(col):
@@ -141,6 +169,7 @@ def find_col(table, keyword):
     raise CollectError(f"'{keyword}'가 들어간 칸이 없어요. 지금 표의 칸: {[str(c) for c in table.columns]}")
 
 
+# 넓은 표(칸마다 항목) → 긴 표(숫자 하나 = 한 줄). items·date_col을 여기서 씀
 def long_from_table(table, items, date_col=None, keep=None):
     """Wide table (one column per item) -> one row per number.
 
@@ -171,6 +200,7 @@ def long_from_table(table, items, date_col=None, keep=None):
     return pd.concat(parts, ignore_index=True)
 
 
+# 꼬리표 채우기 + 숫자·날짜 정리 + 형식 통과/확인 필요 판정 (모든 단계 공통)
 def finalize(table, *, level, source=None, source_url=None, reliability=None, basis=None,
              disclosed=None, base_date=None, stock_code=None, stock_name=None, unit=None, note=None):
     """Turn any table with at least 항목/값 into the shared record table.
@@ -249,6 +279,7 @@ def finalize(table, *, level, source=None, source_url=None, reliability=None, ba
     return records
 
 
+# 모든 단계의 공통 출구: 받아온 표 → 공통 표 15칸
 def collect_table(table, items=None, date_col=None, keep=None, **meta):
     """Single exit for every level: raw table in, record table out.
 
@@ -263,6 +294,7 @@ def collect_table(table, items=None, date_col=None, keep=None, **meta):
     return finalize(table, **meta)
 
 
+# 확인 필요 줄의 ⚠ 이유를 종류별로 세기
 def review_reasons(records):
     reasons = Counter()
     for note in records.loc[records["상태"] == REVIEW, "비고"].fillna(""):
@@ -272,6 +304,7 @@ def review_reasons(records):
     return reasons
 
 
+# 공통 표 모양 검사. 맞으면 '✅ 칸 모양 OK' 요약을 출력
 def check_records(records, show=True):
     problems = []
     if not isinstance(records, pd.DataFrame):
@@ -300,6 +333,7 @@ def check_records(records, show=True):
     return not problems
 
 
+# CSV 저장: 전부(stem.csv) + 확인 필요만(stem_확인필요.csv). 엑셀에서 안 깨지게 utf-8-sig
 def save_records(records, stem="records"):
     all_path, review_path = f"{stem}.csv", f"{stem}_확인필요.csv"
     records.to_csv(all_path, index=False, encoding="utf-8-sig")
@@ -310,6 +344,7 @@ def save_records(records, stem="records"):
 STEP_RESULTS = []
 
 
+# 예시 하나 실행 → 요약표에 ✅ ⏭ ❌ 한 줄. 어떤 오류가 나도 '모두 실행'을 멈추지 않음
 def run_step(label, level, func):
     """Run one source without ever stopping 'Run all'; errors become a summary row."""
     entry = {"단계": f"{level} {LEVELS[level]}", "예시": label, "결과": "❌", "줄 수": 0, "확인 필요": 0, "메모": ""}
@@ -343,10 +378,12 @@ def run_step(label, level, func):
     return records
 
 
+# 지금까지 실행한 예시의 요약표
 def step_summary():
     return pd.DataFrame(STEP_RESULTS, columns=["단계", "예시", "결과", "줄 수", "확인 필요", "메모"])
 
 
+# 주소에 요청 보내기. 오류 메시지에는 사이트 이름만 넣어 키가 화면에 안 나오게 함
 def http_get(url, params=None, timeout=30):
     host = urlparse(url).netloc
     try:
@@ -362,6 +399,7 @@ def http_get(url, params=None, timeout=30):
     return resp
 
 
+# [1단계] JSON 응답에서 'a.b.c' 위치의 목록을 표로. 위치가 틀리면 그 자리에 뭐가 있는지 알려줌
 def read_json_table(url, rows_path, params=None):
     """Fetch JSON and return the list found at a dotted path (e.g. 'StatisticSearch.row') as a table."""
     try:
@@ -410,6 +448,7 @@ def _dart_status(data):
         raise CollectError(f"DART {status}: {DART_ERRORS.get(status, data.get('message', '알 수 없는 응답'))}")
 
 
+# [1단계] 종목코드 → DART 회사 번호 (번호표는 한 번만 받아서 기억)
 def dart_corp(stock_code, api_key):
     if not _DART_CORPS:
         resp = http_get(f"{DART_URL}/corpCode.xml", {"crtfc_key": api_key})
@@ -430,6 +469,7 @@ def dart_corp(stock_code, api_key):
     return _DART_CORPS[stock_code]
 
 
+# [1단계] DART 재무제표 응답에서 6개 계정만 골라 3개월·누적을 나눠 적기
 def dart_rows_to_long(rows, year, quarter):
     """Pick six accounts by standard account_id; flows get 3-month and cumulative rows."""
     base_note = "기준일은 12월 결산 가정"
@@ -465,6 +505,7 @@ def dart_rows_to_long(rows, year, quarter):
     return pd.DataFrame(out)
 
 
+# [1단계] DART 재무제표 → 공통 표 (매출액·영업이익·당기순이익·자산·부채·자본)
 def collect_dart(stock_code, year, quarter, fs_div, api_key):
     if not api_key:
         raise SkipStep("DART 키가 없어요 (Secrets에 DART_API_KEY 등록 후 다시)")
@@ -484,6 +525,7 @@ def collect_dart(stock_code, year, quarter, fs_div, api_key):
     )
 
 
+# [1단계] 한국은행 ECOS 통계 1개 → 공통 표. 키가 없으면 ⏭
 def collect_ecos(api_key, stat_code, cycle, start, end, item_code, label, unit):
     if not api_key:
         raise SkipStep("ECOS 키가 없어요 (선택 사항: ecos.bok.or.kr에서 무료 발급 후 Secrets에 ECOS_API_KEY)")
@@ -502,6 +544,7 @@ def collect_ecos(api_key, stat_code, cycle, start, end, item_code, label, unit):
     )
 
 
+# [3·5단계] 주소나 파일 경로의 CSV·엑셀 읽기 (한글 깨짐 cp949, 이름만 .xls인 파일도 처리)
 def read_table(source, sheet_name=0, skiprows=None):
     """CSV/Excel from a URL or a path. Handles cp949 CSVs and HTML disguised as .xls."""
     if str(source).startswith(("http://", "https://")):
@@ -529,6 +572,7 @@ def read_table(source, sheet_name=0, skiprows=None):
     raise CollectError("CSV 글자를 못 읽었어요 (utf-8, cp949 둘 다 실패). 엑셀에서 'CSV UTF-8'로 다시 저장해 주세요")
 
 
+# [4단계] 사이트의 robots.txt가 코드 수집을 허락하는지 (모르면 None)
 def robots_allowed(url):
     """True/False from robots.txt; None when it cannot be read (caller decides)."""
     parts = urlparse(url)
@@ -546,6 +590,7 @@ def robots_allowed(url):
     return parser.can_fetch(USER_AGENT, url)
 
 
+# [4단계] 웹페이지 화면의 표 읽기. robots.txt가 막으면 ⏭
 def read_html_table(url, match=".+", index=0):
     host = urlparse(url).netloc
     allowed = robots_allowed(url)
@@ -572,6 +617,7 @@ DRIVE_ROOT = "/content/drive/MyDrive/KFA_자료"
 CARD_COLUMNS = ["파일명", "출처", "URL", "기준일", "신뢰도"]
 
 
+# [5단계] 구글 드라이브 연결 후 KFA_자료 폴더 위치 돌려주기 (Colab 전용)
 def mount_drive():
     try:
         from google.colab import drive
@@ -583,6 +629,7 @@ def mount_drive():
     return Path(DRIVE_ROOT)
 
 
+# [5단계] 출처카드 읽기: CSV 경로 또는 구글 시트 제목
 def read_source_cards(source="출처카드"):
     """A CSV path, or (in Colab) the title of a Google Sheet."""
     if str(source).lower().endswith(".csv") or Path(str(source)).exists():
@@ -602,6 +649,7 @@ def read_source_cards(source="출처카드"):
     return pd.DataFrame(sheet.get_all_records())
 
 
+# [3·5단계] 출처카드에 적힌 파일만 읽어서 공통 표로. 못 읽는 파일은 이유와 함께 건너뜀
 def collect_from_cards(cards, files_dir):
     """Read files listed on the source cards. Only CSV/XLSX already shaped as 항목/값/단위/기준일."""
     missing = [c for c in CARD_COLUMNS if c not in cards.columns]
@@ -633,6 +681,7 @@ def collect_from_cards(cards, files_dir):
     return pd.concat(results, ignore_index=True)
 
 
+# 키 읽기: Colab이면 Secrets, 내 컴퓨터면 .env. 값은 절대 출력하지 않음
 def get_key(name):
     """Colab Secrets first, then .env / environment. Never print the value."""
     try:

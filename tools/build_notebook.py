@@ -39,6 +39,8 @@ md("""
 5 수동 입력 ───────┘
 ```
 
+**실행 전에** [2회차 가이드 3-1](https://github.com/phm0305/KFA-ai-agent-study/blob/main/docs/sessions/02/README.md#3-1-수집-방법-15단계란)에서 **내 소스가 몇 단계인지** 먼저 확인하세요.
+
 **사용법:** 위 메뉴 **런타임 → 모두 실행**. 2~3분 걸려요. 중간에 뭐가 실패해도 멈추지 않고 끝까지 가요.
 "보안 비밀 액세스 허용" 창이 뜨면 **허용**을 눌러요.
 
@@ -62,13 +64,16 @@ md("""
 
 code("""
 # ⚙️ 설정: 바꿀 일이 있으면 여기만
-STOCK_CODE = "005930"
-STOCK_NAME = "삼성전자"
-YEAR = 2026
-QUARTER = 2          # 1·2·3·4 (4 = 사업보고서)
-FS_DIV = "CFS"       # CFS 연결 / OFS 별도
-USE_DRIVE = False    # 내 드라이브 KFA_자료 폴더를 만들었으면 True
-CARD_SHEET = "출처카드"
+# 아래 셀들은 이 이름(변수)을 가져다 써요. 여기서 한 번 바꾸면 노트북 전체에 적용돼요.
+# 바꾼 뒤에는 '런타임 → 모두 실행'을 다시 눌러요.
+
+STOCK_CODE = "005930"   # 종목코드 6자리 (따옴표 안에, 앞의 0까지)
+STOCK_NAME = "삼성전자"   # 표에 같이 적을 회사 이름
+YEAR = 2026             # DART 재무제표 연도
+QUARTER = 2             # 1·2·3·4 (4 = 사업보고서). 아직 공시 전인 분기면 DART가 '데이터 없음'을 줘요
+FS_DIV = "CFS"          # CFS 연결 / OFS 별도
+USE_DRIVE = False       # 내 드라이브 KFA_자료 폴더를 만들었으면 True (첫 글자 대문자)
+CARD_SHEET = "출처카드"   # 출처카드 구글 시트 제목
 """)
 
 code("""
@@ -85,6 +90,9 @@ code("#@title 🧰 공통 도구 (고치지 말고 실행만. 코드가 궁금�
 
 code("""
 # 🔑 키 불러오기 (값은 절대 출력하지 않아요)
+# get_key("이름"): 왼쪽 🔑(Secrets)에 그 이름으로 저장한 키를 읽어요. 없으면 None(비어 있음).
+# 키를 "abc123"처럼 셀에 직접 적으면 GitHub에 올릴 때 공개되니까, 항상 이렇게 이름으로만 불러요.
+# 아래 print는 키 값이 아니라 '있다/없다'만 보여줘요.
 DART_API_KEY = get_key("DART_API_KEY")
 ECOS_API_KEY = get_key("ECOS_API_KEY")
 print("DART 키:", "등록됨 ✅" if DART_API_KEY else "없음 ⏭ (Secrets에 DART_API_KEY + 노트북 액세스 켜기)")
@@ -125,7 +133,15 @@ md("""
 """)
 
 code("""
+# run_step(이름, 단계, 실행할 함수): 예시 하나를 '안전하게' 돌리는 포장지예요.
+#   - 성공하면 ✅ + 결과 표를 돌려줘요.
+#   - 준비가 안 됐으면(키 없음 등) ⏭, 실패하면 ❌를 요약표에 한 줄 남기고 None(결과 없음)을 돌려줘요.
+#   - 어느 경우든 노트북은 멈추지 않고 다음 셀로 넘어가요. 그래서 '모두 실행'이 끝까지 가요.
+# lambda: 는 "지금 바로 말고, run_step이 부를 때 실행해"라는 뜻이에요.
+# collect_dart(...): 위 설정 셀의 종목·연도·분기로 DART 재무제표 6개 계정을 받아 공통 표로 만들어요.
 dart = run_step("DART 재무제표", 1, lambda: collect_dart(STOCK_CODE, YEAR, QUARTER, FS_DIV, DART_API_KEY))
+
+# 결과가 있을 때만(None이 아닐 때만) 표를 화면에 보여줘요.
 if dart is not None:
     display(dart)
 """)
@@ -138,6 +154,9 @@ ECOS(한국은행 통계)는 키가 있을 때만 돌아요. 거시 지표를 �
 """)
 
 code("""
+# ECOS 키가 없으면 collect_ecos가 SkipStep을 일으켜요.
+# SkipStep = "준비가 안 돼서 건너뜀" 신호예요. run_step이 받아서 요약표에 ⏭와 이유를 적어요. 오류가 아니에요.
+# stat_code·item_code는 ECOS 통계표 번호예요(722Y001 = 한국은행 기준금리). cycle="M"은 월별.
 ecos = run_step("ECOS 기준금리", 1, lambda: collect_ecos(
     ECOS_API_KEY, stat_code="722Y001", cycle="M", start=f"{YEAR}01", end=f"{YEAR}12",
     item_code="0101000", label="한국은행 기준금리", unit="%"))
@@ -153,17 +172,38 @@ FinanceDataReader는 한국 주식을 기본으로 **네이버 금융**에서 �
 """)
 
 code("""
+# def 함수이름(): 아래 들여쓴 줄들을 한 묶음(함수)으로 만들어 두는 거예요. 만들기만 하고 실행은 run_step이 해요.
 def price_records():
     import FinanceDataReader as fdr
+
+    # 오늘부터 30일 전 날짜를 "2026-09-29" 같은 글자로 만들어요 (휴일을 넉넉히 감안).
     start = (datetime.now(KST) - timedelta(days=30)).strftime("%Y-%m-%d")
+    # 그 날짜부터 주가를 받아서 .tail(5)로 마지막 5거래일만 남겨요.
     prices = fdr.DataReader(STOCK_CODE, start).tail(5)
     if prices.empty:
+        # CollectError = "실패" 신호. run_step이 ❌와 이 문장을 요약표에 적어요.
         raise CollectError("주가가 비어 있어요. 종목코드를 확인해 주세요")
+
+    # ── collect_table: 모든 단계의 공통 출구 ──────────────────────────────
+    # 받아온 표를 공통 표 15칸(숫자 하나 = 한 줄)으로 바꿔요. 내 소스 함수도 마지막 줄은 항상 이거예요.
     return collect_table(
-        prices, {"Close": ("종가", "원"), "Volume": ("거래량", "주")},
-        level=2, source="FinanceDataReader (네이버 금융 경유, 원천 한국거래소)",
-        source_url="https://github.com/FinanceData/FinanceDataReader", reliability="중",
-        basis=NOT_APPLICABLE, disclosed=SAME_AS_DATE, stock_code=STOCK_CODE, stock_name=STOCK_NAME)
+        prices,
+        # items = {"원래 표의 칸 이름": ("우리가 부를 항목 이름", "단위")}
+        #   원래 표의 Close 칸 → '종가'(원), Volume 칸 → '거래량'(주)으로 가져와요. 적지 않은 칸(Open 등)은 버려요.
+        {"Close": ("종가", "원"), "Volume": ("거래량", "주")},
+        # date_col = 날짜가 든 칸 이름. 여기선 안 적었어요:
+        #   주가 표는 날짜가 맨 왼쪽 굵은 글씨(인덱스)에 있어서, 안 적으면 그걸 날짜로 써요.
+        level=2,                                  # 수집 방법 단계 (1~5)
+        source="FinanceDataReader (네이버 금융 경유, 원천 한국거래소)",
+        source_url="https://github.com/FinanceData/FinanceDataReader",  # 원문을 다시 찾아갈 주소
+        reliability="중",                         # 상 / 중 / 하. 원천이 아니라 중간 사이트라 '중'
+        # NOT_APPLICABLE = "해당 없음": 이 숫자엔 그런 개념이 없다는 뜻.
+        #   주가에는 연결/별도 구분이 없으니 basis(기준)는 해당 없음. ('모른다'면 비워 둬야 해요)
+        basis=NOT_APPLICABLE,
+        # SAME_AS_DATE: 공시일을 기준일과 같게 채워요. 주가처럼 그날 바로 공개되는 숫자에만 써요.
+        #   발표일을 알면 "2026-09-15"처럼 적고, 모르면 이 줄을 빼요(→ 확인 필요로 넘어가요).
+        disclosed=SAME_AS_DATE,
+        stock_code=STOCK_CODE, stock_name=STOCK_NAME)
 
 prices = run_step("주가", 2, price_records)
 if prices is not None:
@@ -179,10 +219,15 @@ md("""
 """)
 
 code("""
+# series_id="DGS10": FRED의 통계 번호(미국 10년물 국채금리). 다른 번호를 넣으면 다른 지표를 받아요.
 def fred_records(series_id="DGS10"):
     start = (datetime.now(KST) - timedelta(days=30)).strftime("%Y-%m-%d")
+    # read_table(주소 또는 파일 경로): CSV·엑셀을 표로 읽어요.
+    #   f"...{series_id}..."는 글자 안에 { } 속 값을 끼워 넣는 문법이에요.
     table = read_table(f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}&cosd={start}").tail(5)
     return collect_table(
+        # 이번엔 날짜가 일반 칸에 있어서 date_col을 적어요.
+        #   칸 이름이 DATE일 때도, observation_date일 때도 있어서 이름 대신 '첫 번째 칸'(columns[0])으로 골라요.
         table, {series_id: ("미국 10년물 국채금리", "%")}, date_col=table.columns[0],
         level=3, source="FRED (미국 세인트루이스 연준)", source_url=f"https://fred.stlouisfed.org/series/{series_id}",
         reliability="상", basis=NOT_APPLICABLE, disclosed=SAME_AS_DATE,
@@ -199,7 +244,7 @@ md("""
 웹페이지 화면에 보이는 표를 코드로 긁어오는 방식이에요. 페이지 디자인이 바뀌면 바로 깨지고, 사이트가 허락하지 않을 수도 있어요.
 그래서 `read_html_table()`은 먼저 **robots.txt**(사이트가 "로봇은 여기까지만" 적어둔 파일)를 확인하고, 막혀 있으면 ⏭로 건너뛰어요. 가져온 값은 **전부 확인 필요**로 보내요.
 
-**예시: 한국은행 기준금리 추이 페이지.** 연도와 "05월 29일"이 다른 칸에 있어서 합쳐서 날짜를 만들어요.
+**예시: 한국은행 기준금리 추이 페이지.** 화면의 `변경일자` 머리글 하나 아래에 연도(`2026`)와 날짜(`08월 27일`)가 두 칸으로 나뉘어 있어요. 그래서 칸 이름이 `변경일자`, `변경일자.1`로 겹쳐 읽혀요. 이름 대신 **첫 번째·두 번째 칸**으로 골라서 합쳐 날짜를 만들어요.
 
 > 💡 이 숫자는 1단계 ECOS API에도 있어요. **크롤링하기 전에 같은 데이터가 API로 있는지 먼저 찾아보는 게 원칙이에요.**
 """)
@@ -208,9 +253,20 @@ code("""
 BOK_RATE_URL = "https://www.bok.or.kr/portal/singl/baseRate/list.do?dataSeCd=01&menuNo=200643"
 
 def bok_rate_records():
+    # read_html_table(주소, match="표 안의 글자"): 페이지에서 그 글자가 들어간 표를 찾아 읽어요.
+    #   읽기 전에 robots.txt(사이트가 '로봇은 여기까지만' 적어둔 파일)를 먼저 보고, 막혀 있으면 ⏭로 건너뛰어요.
     table = read_html_table(BOK_RATE_URL, match="기준금리")
-    year, day, rate = (find_col(table, k) for k in ("연도", "변경일자", "기준금리"))
+
+    # 머리글 '변경일자' 하나가 두 칸(연도 | 월일)을 덮고 있어서 이름이 겹쳐요 → 칸 순서로 골라요.
+    year, day = table.columns[0], table.columns[1]
+    # find_col(표, "글자"): 이름에 그 글자가 들어간 칸을 찾아요. 페이지가 조금 바뀌어도 덜 깨져요.
+    rate = find_col(table, "기준금리")
+
+    # 두 칸을 이어 붙여 "2026년 08월 27일" 같은 날짜 칸을 새로 만들어요. (collect_table이 2026-08-27로 바꿔요)
     table["기준일"] = [f"{y}년 {d}" for y, d in zip(table[year], table[day])]
+
+    # 4단계 값은 전부 '확인 필요'로 가요. 페이지가 바뀌면 엉뚱한 칸을 조용히 읽을 수 있어서
+    # 사람이 원문 화면과 한 번 대조해야 하거든요. 고장이 아니에요.
     return collect_table(
         table.head(5), {rate: ("한국은행 기준금리", "%")}, date_col="기준일",
         level=4, source="한국은행 기준금리 추이 페이지", source_url=BOK_RATE_URL,
@@ -235,6 +291,10 @@ md("""
 
 code("""
 def manual_records():
+    # pd.DataFrame([{...}, {...}]): { } 하나가 표의 한 줄이에요.
+    # 칸 이름을 공통 표 이름 그대로(항목, 값, 단위, 기준일, 공시일) 쓰면 items·date_col 없이 바로 들어가요.
+    # "확인": "O"는 '원문과 직접 대조했다'는 표시예요. 이게 있는 줄만 형식 통과가 돼요.
+    # 값은 "1,234", "12.5%"처럼 보이는 그대로 적어도 숫자로 바꿔 줘요. "약 3조"는 못 바꿔서 확인 필요로 가요.
     typed = pd.DataFrame([
         {"항목": "예시 항목 A", "값": "1,234", "단위": "억원", "기준일": "2026.06.30", "공시일": "2026-08-14", "확인": "O"},
         {"항목": "예시 항목 B", "값": "12.5%", "단위": "%", "기준일": "2026년 6월", "공시일": ""},
@@ -258,9 +318,13 @@ md("""
 
 code("""
 def drive_records():
+    # 설정 셀에서 USE_DRIVE를 안 켰으면 직접 SkipStep을 일으켜 ⏭로 넘어가요.
     if not USE_DRIVE:
         raise SkipStep("USE_DRIVE = False (KFA_자료 폴더를 만들었으면 True로)")
+    # 구글 드라이브를 연결하고 '내 드라이브/KFA_자료' 폴더 위치를 받아요.
     root = mount_drive()
+    # 출처카드 시트를 읽고 → KFA_자료/files/ 안에서 카드에 적힌 파일만 공통 표로 바꿔요.
+    #   root / "files"는 'KFA_자료 폴더 안의 files 폴더'라는 경로 표기예요.
     return collect_from_cards(read_source_cards(CARD_SHEET), root / "files")
 
 drive = run_step("내 드라이브 출처카드", 5, drive_records)
@@ -282,20 +346,45 @@ md("""
 | 5단계 손으로 옮김 | `pd.DataFrame([...])` 또는 출처카드 | 수동 입력 |
 
 **순서:** ① 첫 줄 `raise SkipStep(...)`을 지워요 ② 표를 받아와서 `print(table.head())`로 칸 이름을 확인해요 ③ `items`에 `{"원래 칸 이름": ("항목 이름", "단위")}`를 적어요 ④ 꼬리표(source, source_url, reliability, basis, disclosed)를 채워요 ⑤ 실행해서 ✅가 나오면 끝. 확인 필요가 있으면 비고의 ⚠ 이유를 읽고 고치거나, 왜 못 채우는지 한 줄 남겨요.
+
+> 📘 **단계별로 따라 하기:** 내 소스 단계에 맞춰 키·파일을 어디에 넣고, 어떻게 불러오고, 어떤 코드를 붙이고, 어떻게 나오면 성공인지를 [단계별 가이드](https://github.com/phm0305/KFA-ai-agent-study/blob/main/docs/sessions/02/my_source_guide.md)에 단계마다 붙여 쓸 수 있는 코드와 함께 정리했어요. 아래 셀의 `▼ 단계마다 바뀜` 표시가 그 가이드에서 바꿔 넣을 부분이에요.
 """)
 
 code("""
-MY_LEVEL = 1
+# ✍️ 내 소스 붙이기
+# 단계별 코드 예시: docs/sessions/02/my_source_guide.md (위 설명의 '단계별 가이드' 링크)
+#   1단계 API → 가이드 '1단계 · 공식 API'      2단계 라이브러리 → '2단계 · 파이썬 라이브러리'
+#   3단계 파일 → '3단계 · 파일 다운로드'        4단계 웹페이지 표 → '4단계 · 크롤링'
+#   5단계 손으로 옮김 → '5단계 · 수동 입력'
+# 'raise SkipStep' 줄 아래가 지금은 1단계(API) 모양이에요. 다른 단계면 ▼ 표시 부분을 가이드 코드로 바꿔요.
+
+MY_LEVEL = 1   # ▼ 단계마다 바뀜: 내 소스의 수집 방법 단계 1~5
 
 def my_records():
-    raise SkipStep("아직 내 소스를 안 채웠어요")
-    table = read_json_table("https://...", "response.body.items.item", params={})
-    print(table.head())
-    return collect_table(
-        table, {"원래 칸 이름": ("항목 이름", "단위")}, date_col="날짜 칸 이름",
-        level=MY_LEVEL, source="출처 이름", source_url="https://...", reliability="상",
-        basis=NOT_APPLICABLE, disclosed=SAME_AS_DATE)
+    raise SkipStep("아직 내 소스를 안 채웠어요")   # ① 내 소스를 채우기 시작할 때 이 줄을 지워요
 
+    # ② 불러오기 ▼ 단계마다 바뀜 ─────────────────────────────────
+    #   1단계: read_json_table(주소, "결과 위치", params={...})  ← 키는 get_key("이름")으로
+    #   2단계: 라이브러리 함수 결과 그대로 (예: fdr.DataReader(...))
+    #   3단계: read_table("파일 주소") 또는 read_table(mount_drive() / "files" / "파일이름.xlsx")
+    #   4단계: read_html_table(주소, match="표 안의 글자")
+    #   5단계: pd.DataFrame([{"항목": ..., "값": ..., "단위": ..., "기준일": ..., "공시일": ...}])
+    table = read_json_table("https://...", "response.body.items.item", params={})
+    print(table.head())   # 칸 이름 확인용. 여기 나온 이름을 아래 items·date_col에 그대로 옮겨 적어요
+
+    # ③ 붙이기: 모양은 모든 단계가 같아요. ▼ 값만 내 소스에 맞게 바꿔요
+    return collect_table(
+        table,
+        {"원래 칸 이름": ("항목 이름", "단위")},   # ▼ items (5단계처럼 칸 이름이 이미 '항목·값'이면 이 줄 삭제)
+        date_col="날짜 칸 이름",                   # ▼ 날짜 칸 (날짜가 맨 왼쪽 인덱스면 이 줄 삭제)
+        level=MY_LEVEL,
+        source="출처 이름",                        # ▼ 출처 이름
+        source_url="https://...",                  # ▼ 데이터가 있는 페이지 주소 (사이트 첫 화면 말고)
+        reliability="상",                          # ▼ 상 / 중 / 하
+        basis=NOT_APPLICABLE,                      # ▼ 재무제표면 "연결" 또는 "별도"
+        disclosed=SAME_AS_DATE)                    # ▼ 발표일 "YYYY-MM-DD" / 그날 공개면 SAME_AS_DATE / 모르면 줄 삭제
+
+# ④ 확인: '✅ 내 소스: N줄 (확인 필요 M줄)'이 나오면 성공. 단계별 정상 M은 가이드 각 단계의 '④ 성공 모습'
 mine = run_step("내 소스", MY_LEVEL, my_records)
 if mine is not None:
     display(mine)
@@ -311,11 +400,17 @@ md("""
 """)
 
 code("""
+# 위에서 만든 결과들 중 성공한 것(None이 아닌 것)만 모아요.
 frames = [f for f in (dart, ecos, prices, fred, bok, manual, drive, mine) if f is not None]
 if frames:
+    # pd.concat: 표들을 위아래로 이어 붙여요. 칸이 15개로 같아서 그냥 붙어요. 이게 '공통 표'의 힘이에요.
     everything = pd.concat(frames, ignore_index=True)
+    # check_records: 칸 이름·순서·상태가 약속대로인지 검사하고 '✅ 칸 모양 OK: N줄' 요약을 보여줘요.
     check_records(everything)
+    # save_records: CSV 두 개로 저장 (전부 / 확인 필요만). 왼쪽 📁에서 내려받을 수 있어요.
     print("💾 저장:", *save_records(everything, "w02_records"))
+
+# 예시마다 ✅ ⏭ ❌ 한 줄씩. 이 표가 노트북 첫 셀의 '정상 결과' 표와 비슷하면 OK.
 display(step_summary())
 """)
 
@@ -355,6 +450,7 @@ NOT_APPLICABLE, SAME_AS_DATE.
 
 **파일 → GitHub에 사본 저장** → 내 레포 `kfa-ai-agent` → 파일 경로 `w02_내소스수집.ipynb` → 커밋 메시지 `2회차 과제`.
 자세한 순서는 [2회차 가이드](https://github.com/phm0305/KFA-ai-agent-study/blob/main/docs/sessions/02/README.md)를 봐 주세요.
+내 소스가 잘 안 붙으면 [단계별 가이드](https://github.com/phm0305/KFA-ai-agent-study/blob/main/docs/sessions/02/my_source_guide.md)에서 내 단계 칸을 다시 따라 해 봐요.
 """)
 
 
