@@ -205,7 +205,7 @@ def test_cp949_csv_and_fake_xls(tmp_path):
     csv_path.write_bytes("기간,수출액\n2026-09,123\n".encode("cp949"))
     assert c.read_table(csv_path).iloc[0]["수출액"] == 123
     xls_path = tmp_path / "krx.xls"
-    xls_path.write_text("<table><tr><th>일자</th><th>종가</th></tr><tr><td>2026/10/27</td><td>1,000</td></tr></table>")
+    xls_path.write_text("<table><tr><th>일자</th><th>종가</th></tr><tr><td>2026/10/27</td><td>1,000</td></tr></table>", encoding="utf-8")
     table = c.read_table(xls_path)
     records = c.collect_table(table, {"종가": ("종가", "원")}, date_col="일자", level=3, source="KRX",
                               source_url="http://data.krx.co.kr", reliability="상", basis=c.NOT_APPLICABLE,

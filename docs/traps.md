@@ -102,5 +102,5 @@
 
 ## 개발 환경 함정 (데이터 아님)
 
-- 한국어 Windows에서 `test_cp949_csv_and_fake_xls` 실패: 테스트가 인코딩 없이 저장해서 cp949로 저장되고, 읽는 쪽은 utf-8. Colab에선 안 생김. 테스트에 `encoding="utf-8"` 추가 필요(따로 커밋).
+- 한국어 Windows에서 `test_cp949_csv_and_fake_xls` 실패: 테스트가 인코딩 없이 저장해서 cp949로 저장되고, 읽는 쪽은 utf-8. Colab에선 안 생김. 테스트에 `encoding="utf-8"` 추가 필요(따로 커밋). 수정됨 (2026-10-30, test_collect.py 저장 인코딩 지정)
 - Windows의 `python` 명령이 스토어 안내로 연결됨. 설정 → 앱 → 고급 앱 설정 → 앱 실행 별칭에서 끄면 해결.
