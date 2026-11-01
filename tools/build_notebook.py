@@ -1,7 +1,8 @@
-"""Build notebooks/02_template_collect.ipynb from tools/collect.py.
+"""Build notebooks/02_template_collect.ipynb and notebooks/03_engine_v0.ipynb.
 
-collect.py is the single source of the shared code; the notebook embeds it in one
-collapsed cell so members can 'Run all' without importing anything.
+tools/collect.py and tools/engine.py are the single source of the shared code; the
+notebooks embed them in collapsed cells so members can 'Run all' without importing
+anything. Rebuild both whenever either file changes.
 Run from the repo root: python tools/build_notebook.py
 """
 
@@ -10,7 +11,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TOOLS = (ROOT / "tools" / "collect.py").read_text(encoding="utf-8")
-OUT = ROOT / "notebooks" / "02_template_collect.ipynb"
+ENGINE = (ROOT / "tools" / "engine.py").read_text(encoding="utf-8")
+
+# In the notebook these names already exist from the collect.py cell, and there is no
+# collect module to import. Matching the exact line makes any import change stop the build.
+COLLECT_IMPORT = "from collect import CollectError, is_blank\n"
+if ENGINE.count(COLLECT_IMPORT) != 1:
+    raise SystemExit("engine.py's collect import changed; update COLLECT_IMPORT in build_notebook.py")
+ENGINE_CELL = ENGINE.replace(COLLECT_IMPORT, "")
 
 cells = []
 
@@ -21,6 +29,32 @@ def md(text):
 
 def code(text):
     cells.append(("code", text.strip("\n")))
+
+
+def to_source(text):
+    lines = text.split("\n")
+    return [line + "\n" for line in lines[:-1]] + [lines[-1]]
+
+
+def write_notebook(name):
+    out = ROOT / "notebooks" / name
+    notebook = {
+        "cells": [
+            {"cell_type": kind, "metadata": {}, "source": to_source(text),
+             **({"execution_count": None, "outputs": []} if kind == "code" else {})}
+            for kind, text in cells
+        ],
+        "metadata": {
+            "colab": {"provenance": []},
+            "kernelspec": {"display_name": "Python 3", "name": "python3"},
+            "language_info": {"name": "python"},
+        },
+        "nbformat": 4,
+        "nbformat_minor": 0,
+    }
+    out.write_text(json.dumps(notebook, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    print(f"wrote {out.relative_to(ROOT)} ({len(cells)} cells)")
+    cells.clear()
 
 
 md("""
@@ -454,25 +488,244 @@ NOT_APPLICABLE, SAME_AS_DATE.
 """)
 
 
-def to_source(text):
-    lines = text.split("\n")
-    return [line + "\n" for line in lines[:-1]] + [lines[-1]]
+write_notebook("02_template_collect.ipynb")
 
 
-notebook = {
-    "cells": [
-        {"cell_type": kind, "metadata": {}, "source": to_source(text),
-         **({"execution_count": None, "outputs": []} if kind == "code" else {})}
-        for kind, text in cells
-    ],
-    "metadata": {
-        "colab": {"provenance": []},
-        "kernelspec": {"display_name": "Python 3", "name": "python3"},
-        "language_info": {"name": "python"},
-    },
-    "nbformat": 4,
-    "nbformat_minor": 0,
-}
+md("""
+# 🧩 3회차 엔진 v0: DART 한 종목을 출처 번호까지
 
-OUT.write_text(json.dumps(notebook, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-print(f"wrote {OUT.relative_to(ROOT)} ({len(cells)} cells)")
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/phm0305/KFA-ai-agent-study/blob/main/notebooks/03_engine_v0.ipynb)
+
+2회차에 만든 공통 표(15칸)에 **줄 이름표(rid)**와 **출처 번호([S#])**를 붙여요.
+이 둘이 있어야 나중에 글에 나온 숫자를 공통 표의 줄과 원문 공시까지 거꾸로 따라갈 수 있어요.
+
+```
+DART 2개 연도 ─────┐
+출처카드 (수동 입구) ─┼──▶ 공통 표 15칸 ──▶ 꼬리표 점검 ──▶ rid · [S#] 붙이기 ──▶ CSV 저장
+내 소스 × 3종목 ────┘
+```
+
+**사용법:** 아래 설정 셀의 `STOCK_CODE`, `YEAR` 두 줄만 바꾸고 위 메뉴 **런타임 → 모두 실행**.
+"보안 비밀 액세스 허용" 창이 뜨면 **허용**을 눌러요. 중간에 뭐가 실패해도 멈추지 않고 끝까지 가요.
+""")
+
+md("""
+**설정**
+
+- `STOCK_CODE`: 종목코드 6자리. 따옴표 안에, 앞의 0까지 적어요
+- `YEAR`: 사업보고서 연도. **이 해와 그 전년도** 두 해를 받아요. 아직 사업보고서가 안 나온 해면 DART가 '데이터 없음'을 줘요
+- `USE_DRIVE`: 2회차 `KFA_자료` 폴더와 출처카드를 쓸 때만 `True` (첫 글자 대문자)
+- `CARD_SHEET`: 출처카드 구글 시트 제목
+""")
+
+code("""
+STOCK_CODE = "000660"
+YEAR = 2025
+USE_DRIVE = False
+CARD_SHEET = "출처카드"
+""")
+
+code("""
+#@title 📦 설치 (1분) { display-mode: "form" }
+import subprocess, sys
+proc = subprocess.run([sys.executable, "-m", "pip", "install", "-q", "finance-datareader", "python-dotenv"],
+                      capture_output=True, text=True)
+print("✅ 설치 완료" if proc.returncode == 0 else "❌ 설치 실패: 런타임 → 런타임 다시 시작 → 모두 실행")
+""")
+
+code("#@title 🧰 공통 도구 (고치지 말고 실행만. 코드가 궁금하면 이 셀을 더블클릭) { display-mode: \"form\" }\n"
+     + TOOLS.strip("\n")
+     + "\n\nSTEP_RESULTS.clear()\nprint(\"✅ 공통 도구 준비 완료\")")
+
+code("#@title ⚙️ 엔진 도구 (고치지 말고 실행만) { display-mode: \"form\" }\n"
+     + ENGINE_CELL.strip("\n")
+     + "\n\nprint(\"✅ 엔진 도구 준비 완료\")")
+
+code("""
+DART_API_KEY = get_key("DART_API_KEY")
+print("DART 키:", "등록됨 ✅" if DART_API_KEY else "없음 ⏭ (Secrets에 DART_API_KEY + 노트북 액세스 켜기)")
+""")
+
+md("""
+## 1. DART에서 두 해 받기
+
+사업보고서(4분기)의 **연결** 재무제표에서 6개 계정을 `YEAR`와 그 전년도로 받아요. 해마다 따로 받아서, 한 해만 실패해도 어느 해인지 보여요.
+""")
+
+code("""
+dart_years = []
+for year in (YEAR - 1, YEAR):
+    result = run_step(f"DART {year} 사업보고서", 1, lambda: collect_dart(STOCK_CODE, year, 4, "CFS", DART_API_KEY))
+    if result is not None:
+        dart_years.append(result)
+
+dart = pd.concat(dart_years, ignore_index=True) if dart_years else None
+if dart is not None:
+    display(dart[["종목명", "항목", "값", "단위", "기준", "기준일", "공시일", "상태"]])
+""")
+
+md("""
+## 2. 꼬리표 점검
+
+`check_records`가 15칸의 이름·순서와 상태 칸을 검사하고 요약을 보여줘요. **형식 통과는 모양이 맞다는 뜻이지 숫자가 맞다는 뜻은 아니에요.** 확인 필요가 있으면 ⚠ 이유가 줄 수와 함께 나와요.
+""")
+
+code("""
+if dart is None:
+    print("⏭ DART 결과가 없어서 건너뛰어요 (위 셀의 ❌·⏭ 메모를 먼저 확인)")
+else:
+    check_records(dart)
+""")
+
+md("""
+## 3. 줄 이름표(rid)와 출처 번호([S#])
+
+- **rid** = `종목코드|항목|기준|기준일|출처`. 같은 rid가 두 줄이면 같은 사실을 두 번 넣은 거라 멈춰요.
+- **[S#]** = (출처, 출처 URL) 한 쌍에 번호 하나. 그래서 같은 DART라도 2024·2025 사업보고서가 서로 다른 번호를 받아요. 번호는 정렬 순서로 매겨서 다시 돌려도 같아요.
+""")
+
+code("""
+if dart is None:
+    print("⏭ DART 결과가 없어서 건너뛰어요")
+else:
+    dart_sources, dart_tagged = build_sources(with_ids(dart))
+    display(dart_sources)
+    display(dart_tagged[["source_id", "rid", "값"]])
+""")
+
+md("""
+## 4. 저장
+
+왼쪽 📁 파일 탭에 CSV 세 개가 생겨요.
+
+- `w03_dart.csv`: 공통 표 15칸 + `rid` + `source_id`
+- `w03_dart_확인필요.csv`: 확인 필요 줄만
+- `w03_dart_sources.csv`: 출처 목록 [S#]
+""")
+
+code("""
+def save_engine(tagged, sources, stem):
+    paths = save_records(tagged, stem)
+    sources.to_csv(f"{stem}_sources.csv", index=False, encoding="utf-8-sig")
+    print("💾 저장:", *paths, f"{stem}_sources.csv")
+
+if dart is None:
+    print("⏭ DART 결과가 없어서 건너뛰어요")
+else:
+    save_engine(dart_tagged, dart_sources, "w03_dart")
+""")
+
+md("""
+## 5. 수동 입구: 내 드라이브의 출처카드 읽기
+
+2회차에 만든 `KFA_자료` 폴더와 출처카드를 그대로 써요. 설정 셀에서 `USE_DRIVE = True`로 바꾸면 드라이브 연결 창과 구글 로그인 창이 차례로 떠요(둘 다 허용).
+출처카드에 **적힌 파일만**, 그중 `항목, 값, 단위, 기준일` 칸으로 정리한 CSV·엑셀만 읽어요. 건너뛴 파일은 이유가 한 줄씩 나와요.
+""")
+
+code("""
+def drive_records():
+    if not USE_DRIVE:
+        raise SkipStep("USE_DRIVE = False (KFA_자료 폴더를 만들었으면 True로)")
+    root = mount_drive()
+    return collect_from_cards(read_source_cards(CARD_SHEET), root / "files")
+
+drive = run_step("내 드라이브 출처카드", 5, drive_records)
+if drive is not None:
+    display(drive)
+""")
+
+md("""
+## 6. 자동 + 수동을 합쳐서 같은 흐름 다시
+
+DART와 출처카드를 이어 붙이고 2~4번(점검 → rid·[S#] → 저장)을 한 번에 돌려요. 저장 이름은 `w03_records`예요.
+출처카드 파일은 자기 [S#]를 따로 받아요. 출처가 늘면 기존 번호가 밀릴 수 있어요. `USE_DRIVE = False`면 DART만 다시 돌아서 위와 같은 결과가 나와요.
+""")
+
+code("""
+def engine_pass(records, stem):
+    if not check_records(records):
+        return None
+    try:
+        sources, tagged = build_sources(with_ids(records))
+    except CollectError as e:
+        print("❌", e)
+        return None
+    display(sources)
+    save_engine(tagged, sources, stem)
+    return tagged
+
+parts = [f for f in (dart, drive) if f is not None]
+merged = engine_pass(pd.concat(parts, ignore_index=True), "w03_records") if parts else None
+""")
+
+md("""
+## ✍️ 과제: 내 소스를 종목 3개 이상에 붙이기
+
+2회차에 만든 `my_records()`를 **종목코드를 받는 모양** `my_records(code)`로 바꿔 아래에 붙여요. `MY_TARGETS`의 종목마다 한 번씩 돌아요.
+
+1. `MY_LEVEL`에 내 소스의 수집 방법 단계(1~5), `MY_TARGETS`에 종목코드 3개 이상을 적어요
+2. `raise SkipStep(...)` 줄을 지우고, 그 아래를 2회차에 성공한 코드로 바꿔요
+3. 주소나 요청 값에 종목코드가 들어가는 자리에 `code`를 넣고, `collect_table(...)` 끝에 `stock_code=code`를 남겨요
+4. 금리처럼 종목과 상관없는 소스면 `MY_TARGETS`에 통계 번호 3개를 넣고 `stock_code=code` 줄을 지워요
+
+종목마다 ✅ ⏭ ❌가 한 줄씩 나와요. 실패한 종목은 지우지 말고 그대로 두세요. 아래 실패 기록 표에 이유가 남아요.
+""")
+
+code("""
+MY_LEVEL = 1
+MY_TARGETS = ["005930", "000660", "035420"]
+
+def my_records(code):
+    raise SkipStep("아직 내 소스를 안 채웠어요")
+
+    table = read_json_table("https://...", "response.body.items.item", params={})
+    print(table.head())
+    return collect_table(
+        table,
+        {"원래 칸 이름": ("항목 이름", "단위")},
+        date_col="날짜 칸 이름",
+        level=MY_LEVEL,
+        source="출처 이름",
+        source_url="https://...",
+        reliability="상",
+        basis=NOT_APPLICABLE,
+        disclosed=SAME_AS_DATE,
+        stock_code=code)
+
+mine_parts = []
+for code in MY_TARGETS:
+    result = run_step(f"내 소스 {code}", MY_LEVEL, lambda: my_records(code))
+    if result is not None:
+        mine_parts.append(result)
+
+mine = engine_pass(pd.concat(mine_parts, ignore_index=True), "w03_my_source") if mine_parts else None
+""")
+
+md("""
+## API 실패 기록
+
+API가 실패하는 흔한 이유 세 가지 중 두 가지를 일부러 일으켜서 메시지 모양을 봐요.
+
+- **키 틀림**: 가짜 키로 요청 → DART 010
+- **데이터 없음**: 아직 안 나온 `YEAR + 1` 사업보고서를 요청 → DART 013
+- **호출 제한**: 하루 한도를 넘겨야 나와서 일부러 만들지 않아요. DART는 `DART 020: 오늘 요청 한도를 넘었어요. 내일 다시 해 주세요`로 알려줘요
+
+아래 표에는 ✅가 아닌 줄만 나와요. 내 소스가 실패한 종목도 여기 같이 나오니, 메모를 보고 위 셋 중 어디에 해당하는지 가이드의 실패 기록에 적어요.
+""")
+
+code("""
+run_step("실패 예시: 키 틀림", 1, lambda: collect_dart(STOCK_CODE, YEAR, 4, "CFS", "not-a-real-key"))
+run_step("실패 예시: 데이터 없음", 1, lambda: collect_dart(STOCK_CODE, YEAR + 1, 4, "CFS", DART_API_KEY))
+
+summary = step_summary()
+display(summary[summary["결과"] != "✅"])
+""")
+
+md("""
+## 📤 제출
+
+**파일 → GitHub에 사본 저장** → 내 레포 `kfa-ai-agent` → 파일 경로 `w03_엔진.ipynb` → 커밋 메시지 `3회차 과제`.
+자세한 순서와 결과 읽는 법은 [3회차 가이드](https://github.com/phm0305/KFA-ai-agent-study/blob/main/docs/sessions/03/README.md)를 봐 주세요.
+""")
+
+write_notebook("03_engine_v0.ipynb")

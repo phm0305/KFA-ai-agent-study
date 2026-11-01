@@ -43,7 +43,7 @@
 
 ## 공통 도구 규칙
 - 공통 표 15칸(`collect.py`의 COLUMNS)은 바꾸지 않음. 조원 노트북이 이 모양에 기댐. 새 칸이 필요하면 엔진 쪽 사본에만 붙임
-- `collect.py`를 고치면 반드시 `python tools/build_notebook.py`를 다시 돌림. 노트북이 collect.py 코드를 품고 있어서, 안 돌리면 옛 코드가 남음
+- `collect.py`나 `engine.py`를 고치면 반드시 `python tools/build_notebook.py`를 다시 돌림. 02·03 노트북이 이 코드를 품고 있어서, 안 돌리면 옛 코드가 남음
 - 설계 근거는 `docs/sessions/02/template_spec.md`, 엔진 계획은 `docs/plans/engine-step2.md`
 
 ## 작업 규칙
