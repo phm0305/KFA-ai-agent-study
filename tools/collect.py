@@ -19,7 +19,7 @@ Member-facing messages are Korean on purpose; identifiers stay English.
   2단계 라이브러리     (도구 없음: 라이브러리가 준 표를 collect_table에 바로)
   3단계 파일          read_table()
   4단계 크롤링        read_html_table() · robots_allowed() · find_col()
-  5단계 수동 입력      (pd.DataFrame으로 직접) · mount_drive() · read_source_cards() · collect_from_cards()
+  5단계 수동 입력      (pd.DataFrame으로 직접) · mount_drive() · read_source_cards() · pick_sheet_title() · collect_from_cards()
 
   정리 도구           to_number() 숫자 바꾸기 · to_date() 날짜 바꾸기 · is_blank() 빈칸 판단
   약속된 값           NOT_APPLICABLE = "해당 없음" · SAME_AS_DATE = 공시일을 기준일과 같게
@@ -545,8 +545,22 @@ def collect_ecos(api_key, stat_code, cycle, start, end, item_code, label, unit):
 
 
 # [3·5단계] 주소나 파일 경로의 CSV·엑셀 읽기 (한글 깨짐 cp949, 이름만 .xls인 파일도 처리)
+# 칸 이름과 글자 값의 앞뒤 공백은 지워요 (화면에서 안 보이는 차이라서)
 def read_table(source, sheet_name=0, skiprows=None):
-    """CSV/Excel from a URL or a path. Handles cp949 CSVs and HTML disguised as .xls."""
+    """CSV/Excel from a URL or a path. Handles cp949 CSVs and HTML disguised as .xls.
+
+    Leading/trailing spaces in column names and text cells are removed: they are
+    invisible on screen, so no reader can mean anything by them.
+    """
+    table = _read_table_raw(source, sheet_name, skiprows)
+    table.columns = [c.strip() if isinstance(c, str) else c for c in table.columns]
+    for col in table.columns:
+        if not pd.api.types.is_numeric_dtype(table[col]):
+            table[col] = table[col].map(lambda v: v.strip() if isinstance(v, str) else v)
+    return table
+
+
+def _read_table_raw(source, sheet_name, skiprows):
     if str(source).startswith(("http://", "https://")):
         content, name = http_get(str(source)).content, urlparse(str(source)).path.lower()
     else:
@@ -642,16 +656,36 @@ def read_source_cards(source="출처카드"):
     from google.auth import default
     auth.authenticate_user()
     creds, _ = default()
+    client = gspread.authorize(creds)
     try:
-        sheet = gspread.authorize(creds).open(source).sheet1
+        sheet = client.open(source).sheet1
     except gspread.SpreadsheetNotFound:
-        raise CollectError(f"'{source}'라는 구글 시트를 못 찾았어요. 시트 이름을 확인해 주세요") from None
+        files = client.list_spreadsheet_files()
+        title = pick_sheet_title(source, [f["name"] for f in files])
+        print(f"'{title}'를 {source}로 읽었어요")
+        sheet = client.open_by_key(next(f["id"] for f in files if f["name"] == title)).sheet1
     return pd.DataFrame(sheet.get_all_records())
+
+
+# [5단계] 시트 이름이 정확히 같지 않을 때 띄어쓰기만 다른 시트 찾기
+def pick_sheet_title(wanted, titles):
+    """The one title equal to wanted once all whitespace is removed; stops on zero or several."""
+    squeeze = lambda s: re.sub(r"\s+", "", str(s))
+    matches = [t for t in titles if squeeze(t) == squeeze(wanted)]
+    if not matches:
+        raise CollectError(f"'{wanted}'라는 구글 시트를 못 찾았어요. 시트 이름을 확인해 주세요")
+    if len(matches) > 1:
+        raise CollectError(f"'{wanted}'와 띄어쓰기만 다른 시트가 {len(matches)}개예요: {matches}. "
+                           f"쓸 시트 하나만 이름을 '{wanted}'로 바꿔 주세요")
+    return matches[0]
 
 
 # [3·5단계] 출처카드에 적힌 파일만 읽어서 공통 표로. 못 읽는 파일은 이유와 함께 건너뜀
 def collect_from_cards(cards, files_dir):
-    """Read files listed on the source cards. Only CSV/XLSX already shaped as 항목/값/단위/기준일."""
+    """Read files listed on the source cards. Only CSV/XLSX already shaped as 항목/값/단위/기준일.
+
+    An optional 공시일 card column fills 공시일 the same way 기준일 does: a cell in the file wins.
+    """
     missing = [c for c in CARD_COLUMNS if c not in cards.columns]
     if missing:
         raise CollectError(f"출처카드에 없는 칸: {missing}")
@@ -667,12 +701,14 @@ def collect_from_cards(cards, files_dir):
             continue
         table = read_table(path)
         if not {"항목", "값"} <= set(table.columns):
-            skipped.append((name, "'항목·값·단위·기준일' 칸 모양이 아니에요. 3단계 예시처럼 items로 바꿔 주세요"))
+            skipped.append((name, "'항목·값·단위·기준일' 칸 모양이 아니에요. 3단계 예시처럼 items로 바꿔 주세요. "
+                                  f"지금 칸: {[str(col) for col in table.columns]}"))
             continue
         level_match = re.match(r"\s*([1-5])", str(card.get("수집 방법") or ""))
+        disclosed = None if is_blank(card.get("공시일")) else card["공시일"]
         results.append(collect_table(
             table, level=int(level_match.group(1)) if level_match else 5, source=card["출처"], source_url=card["URL"],
-            reliability=card["신뢰도"], base_date=card["기준일"], note=f"출처카드: {name}",
+            reliability=card["신뢰도"], base_date=card["기준일"], disclosed=disclosed, note=f"출처카드: {name}",
         ))
     for name, why in skipped:
         print(f"   ⏭ {name}: {why}")

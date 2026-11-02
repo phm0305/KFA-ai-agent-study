@@ -215,6 +215,23 @@ def test_cp949_csv_and_fake_xls(tmp_path):
         c.read_table(tmp_path / "없는파일.csv")
 
 
+def test_read_table_trims_invisible_spaces(tmp_path):
+    path = tmp_path / "테스트_예시_2026-09.csv"
+    path.write_text("   항목,값 ,단위\n   테스트 매출,100,억원 \n", encoding="utf-8")
+    table = c.read_table(path)
+    assert list(table.columns) == ["항목", "값", "단위"]
+    assert table.loc[0, "항목"] == "테스트 매출" and table.loc[0, "단위"] == "억원"
+    assert table.loc[0, "값"] == 100
+
+
+def test_pick_sheet_title_ignores_spaces_only():
+    assert c.pick_sheet_title("출처카드", ["출처 카드", "가계부"]) == "출처 카드"
+    with pytest.raises(c.CollectError, match=r"2개예요: \['출처카드 ', '출처 카드'\]"):
+        c.pick_sheet_title("출처카드", ["출처카드 ", "출처 카드"])
+    with pytest.raises(c.CollectError, match="'출처카드'라는 구글 시트를 못 찾았어요"):
+        c.pick_sheet_title("출처카드", ["출처카드_옛날", "가계부"])
+
+
 BOK_HTML = """<html><body><table><caption>한국은행 기준금리 변동추이</caption>
 <thead><tr><th>연도</th><th>변경일자</th><th>기준금리</th></tr></thead>
 <tbody><tr><td rowspan="2">2025</td><td>05월 29일</td><td>2.50</td></tr>
@@ -302,6 +319,19 @@ def test_cards_read_only_listed_and_shaped_files(tmp_path):
     assert records.loc[0, "출처"] == "하나증권 리포트" and records.loc[0, "상태"] == c.REVIEW
     with pytest.raises(c.CollectError, match="출처카드에 없는 칸"):
         c.collect_from_cards(cards.drop(columns=["신뢰도"]), files)
+
+
+def test_card_disclosure_date_is_default_and_file_cell_wins(tmp_path):
+    files = tmp_path / "files"
+    files.mkdir()
+    (files / "a.csv").write_text("항목,값,단위,기준,공시일,확인\n매출,100,억원,연결,,✅\n이익,10,억원,연결,2026-11-14,✅\n",
+                                 encoding="utf-8")
+    card = {"파일명": "a.csv", "출처": "리포트", "URL": "https://x", "기준일": "2026-09-30", "신뢰도": "중"}
+    with_date = c.collect_from_cards(pd.DataFrame([{**card, "공시일": "2026-10-30"}]), files)
+    assert with_date["공시일"].tolist() == ["2026-10-30", "2026-11-14"]
+    assert with_date["상태"].tolist() == [c.PASSED, c.PASSED]
+    without = c.collect_from_cards(pd.DataFrame([card]), files)
+    assert without.loc[0, "상태"] == c.REVIEW and "공시일 비어 있음" in without.loc[0, "비고"]
 
 
 def test_ecos_success_and_error(monkeypatch):
