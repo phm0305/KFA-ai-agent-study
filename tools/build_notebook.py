@@ -802,6 +802,33 @@ md("""
 code(DART_TWO_YEARS)
 
 md("""
+## 1-1. 내 소스 붙이기 (선택)
+
+3회차에 만든 `my_records(code)`를 아래 자리에 붙여 넣고 `MY_TARGETS`에 종목코드를 적으면, 내 소스 줄도 공통 표에 들어가서 Gemini가 근거로 고를 수 있어요.
+비워 두면 ⏭로 넘어가고 공통 표는 DART만 그대로예요.
+""")
+
+code("""
+MY_LEVEL = 1
+MY_TARGETS = []
+
+def my_records(code):
+    raise SkipStep("아직 내 소스를 안 채웠어요")
+
+mine_parts = []
+for code in MY_TARGETS:
+    result = run_step(f"내 소스 {code}", MY_LEVEL, lambda: my_records(code))
+    if result is not None:
+        mine_parts.append(result)
+
+if mine_parts:
+    dart = pd.concat([f for f in (dart, *mine_parts) if f is not None], ignore_index=True)
+    print(f"✅ 내 소스 {sum(len(f) for f in mine_parts)}줄을 공통 표에 붙였어요")
+else:
+    print("⏭ 내 소스 없음: 공통 표는 DART만으로 계속해요")
+""")
+
+md("""
 ## 2. 줄 이름표(rid)와 출처 번호([S#])
 
 Gemini는 글 속 숫자마다 아래 표의 **rid**(줄 이름표) 하나를 골라 근거로 적어요. [S#]는 그 줄이 어느 공시에서 왔는지예요.
@@ -812,9 +839,13 @@ dart_sources, dart_tagged = None, None
 if dart is None:
     print("⏭ DART 결과가 없어서 건너뛰어요 (위 셀의 ❌·⏭ 메모를 먼저 확인)")
 else:
-    dart_sources, dart_tagged = build_sources(with_ids(dart))
-    display(dart_sources)
-    display(dart_tagged[["source_id", "rid", "항목", "값", "단위", "기준일"]])
+    try:
+        dart_sources, dart_tagged = build_sources(with_ids(dart))
+    except CollectError as error:
+        print("❌", error)
+    else:
+        display(dart_sources)
+        display(dart_tagged[["source_id", "rid", "항목", "값", "단위", "기준일"]])
 """)
 
 md("""
