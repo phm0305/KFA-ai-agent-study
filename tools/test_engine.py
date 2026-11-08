@@ -3,6 +3,8 @@
 Run: python -m pytest tools/test_engine.py -q
 """
 
+import json
+
 import pandas as pd
 import pytest
 
@@ -233,3 +235,69 @@ def test_blank_units_on_both_sides_review():
 
     assert checked["판정"].tolist() == [e.CHECK]
     assert "단위 없음" in checked.loc[0, "이유"]
+
+
+def answer_file(tmp_path, text):
+    path = tmp_path / "answer.txt"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_saved_answer_in_code_fence_is_checked_the_same_every_read(tmp_path):
+    records = financials()
+    metrics = metrics_of(records)
+    path = answer_file(tmp_path, """```json
+[{"claim_id": "C-1", "문장": "매출이 25% 늘었다", "근거": [["M1", "25", "%"]]},
+ {"claim_id": "C-2", "문장": "영업이익률은 20.4%, 전년보다 3%포인트 높다", "근거": [["M2", "20.4", "%"], ["", "3", "%포인트"]]},
+ {"claim_id": "C-3", "문장": "HBM이 실적을 이끌었다", "근거": []}]
+```""")
+    checked = e.check_claims(e.load_claims(path), metrics, records)
+
+    assert checked["판정"].tolist() == [e.PASS, e.FIX, e.CHECK, e.CHECK]
+    assert checked["이유"].tolist()[2:] == ["근거 id가 비어 있음 (표에 뒷받침하는 줄이 없음)", "근거 없음"]
+    assert checked.equals(e.check_claims(e.load_claims(path), metrics, records))
+
+
+def test_one_broken_claim_reviews_alone(tmp_path):
+    records = financials()
+    path = answer_file(tmp_path, """[{"claim_id": "C-1", "문장": "매출이 25% 늘었다", "근거": [["M1", "25", "%"]]},
+ {"claim_id": "C-2", "문장": "영업이익률 20%" "근거": [["M2", "20", "%"]]},
+ {"claim_id": "C-3", "문장": "부채비율 50%", "근거": [["M3", "50", "%"]]}]""")
+    checked = e.check_claims(e.load_claims(path), metrics_of(records), records)
+
+    assert verdicts(checked) == {"C-1": e.PASS, "C-2": e.CHECK, "C-3": e.PASS}
+    assert checked.set_index("claim_id").loc["C-2", "이유"].startswith("AI 답변 형식 오류: JSON이 깨짐")
+
+
+def test_answer_without_json_reviews_without_stopping(tmp_path):
+    records = financials()
+    path = answer_file(tmp_path, "죄송해요, 이 글에서는 주장을 찾지 못했어요.")
+    checked = e.check_claims(e.load_claims(path), metrics_of(records), records)
+
+    assert checked["판정"].tolist() == [e.CHECK]
+    assert "주장을 하나도 못 찾음" in checked.loc[0, "이유"]
+
+
+def test_saved_answer_reused_only_for_the_same_question(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_call(prompt, api_key, model, fallback_model):
+        calls.append(prompt)
+        return f"answer {len(calls)}", model
+
+    monkeypatch.setattr(e, "_call_gemini", fake_call)
+    path = tmp_path / "ai_claims.txt"
+    ask = lambda prompt, **kw: e.ask_claims(prompt, "key", path, "flash", "flash-lite", **kw)
+
+    ask("question A")
+    ask("question A")
+    assert len(calls) == 1
+    ask("question B")
+    assert path.read_text(encoding="utf-8") == "answer 2"
+    record = json.loads((tmp_path / "ai_claims_기록.json").read_text(encoding="utf-8"))
+    assert (record["질문"], record["모델"]) == ("question B", "flash")
+    ask("question B", overwrite=True)
+    assert calls == ["question A", "question B", "question B"]
+    (tmp_path / "ai_claims_기록.json").unlink()
+    ask("question B")
+    assert len(calls) == 4

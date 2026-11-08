@@ -11,8 +11,14 @@ change. Member-facing messages are Korean on purpose; identifiers stay English.
     compute_metrics() 지표 정의 표(METRIC_SPECS)대로 지표 [M1] [M2] ...을 계산해요. 입력 줄이 없으면 값을 비우고 이유를 적어요
     check_claims()    주장에 적은 숫자를 지표나 원본 줄과 대조해서 PASS / FIX / REVIEW로 판정해요
     render_check()    주장 목록·지표 표·숫자 대조 표·출처 목록을 마크다운 파일 하나로 저장해요
+    claims_prompt()   Gemini에게 보낼 질문(규칙 + 공통 표 + 지표 표 + 글)을 만들어요
+    ask_claims()      Gemini 답을 원문 그대로 저장해요. 질문이 저장된 것과 똑같으면 다시 부르지 않아요
+    load_claims()     저장된 답을 주장 목록으로 읽어요. 깨진 주장은 REVIEW로 넘겨요
 """
 
+import json
+import re
+import time
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -20,7 +26,7 @@ from typing import Literal
 
 import pandas as pd
 
-from collect import REVIEW, CollectError, is_blank
+from collect import REVIEW, CollectError, SkipStep, is_blank, now_kst
 
 RID_PARTS = ["종목코드", "항목", "기준", "기준일", "출처"]
 SOURCE_KEY = ["출처", "출처 URL"]
@@ -226,6 +232,8 @@ def _format_actual(actual, written, unit):
 
 def _lookup(evidence_id, metrics, records):
     """Return (value, unit, source ids, reason the value cannot be used or None)."""
+    if not evidence_id:
+        return None, None, [], "근거 id가 비어 있음 (표에 뒷받침하는 줄이 없음)"
     if evidence_id.startswith("M"):
         hit = metrics[metrics["metric_id"] == evidence_id]
         if hit.empty:
@@ -250,6 +258,7 @@ def check_claims(claims, metrics, records):
 
     claims: [{"claim_id": "C-1", "문장": "...", "근거": [(id, number, unit), ...]}].
     The number may be text ("46.80", "1,100") so trailing zeros keep their precision.
+    A claim carrying "형식 오류" (set by load_claims) yields one REVIEW row and nothing else.
     출처 번호 collects the S# of every evidence row, or of a metric's input rows.
     """
     _require_tagged(records)
@@ -257,9 +266,11 @@ def check_claims(claims, metrics, records):
     for claim in claims:
         evidence = claim.get("근거") or []
         rows, sources = [], set()
-        if not evidence:
-            rows.append({"근거 id": "", "적은 숫자": None, "적은 단위": "", "실제 값": None,
-                         "판정": CHECK, "이유": "근거 없음"})
+        problem = claim.get("형식 오류")
+        if problem or not evidence:
+            rows.append({"근거 id": "", "적은 숫자": None, "적은 단위": "", "실제 값": None, "판정": CHECK,
+                         "이유": f"AI 답변 형식 오류: {problem}" if problem else "근거 없음"})
+            evidence = []
         for evidence_id, number, unit in evidence:
             actual, actual_unit, sids, problem = _lookup(evidence_id, metrics, records)
             sources.update(sids)
@@ -318,3 +329,152 @@ def render_check(checked, metrics, sources, path):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
+
+
+RETRY_CODES = (429, 500, 503)
+RETRY_WAITS = (5, 10, 20)
+CLAIM_RULES = """아래 글에서 숫자가 들어간 주장을 모두 찾아, 각 숫자의 근거를 공통 표나 지표 표에서 골라 줘.
+
+규칙
+- 출력은 JSON 배열 하나만: [{"claim_id": "C-1", "문장": "...", "근거": [["근거 id", "숫자", "단위"]]}]
+- claim_id는 C-1, C-2 ... 순서대로 붙여
+- 문장은 글에 적힌 그대로 옮겨
+- 근거 id는 공통 표의 rid나 지표 표의 metric_id(M1 ...)를 글자 그대로 복사해. 표에 없는 id를 만들지 마
+- 숫자와 단위는 문장에 적힌 글자 그대로 적어 (예: "97.1", "조 원"). 단위를 바꾸거나 다시 계산하지 마
+- 문장 속 숫자마다 근거를 하나씩 적어. 숫자가 가리키는 항목의 줄이나 지표를 골라. 값이 맞는지는 판단하지 마
+- 증감, 포인트 차이 같은 변화량은 그 변화량 자체가 표에 있을 때만 고르고, 없으면 근거 id를 ""로 비워 (수준 지표에 변화량을 대지 마)
+- 그 밖에는 항목 자체가 표에 없을 때만 근거 id를 ""로 비워
+- 숫자가 없는 주장은 "근거": []로 적어"""
+
+
+def claims_prompt(records, metrics, text):
+    """Question text for Gemini: rules, the tables it may cite, then the text to read."""
+    rows = records[["rid", "항목", "값", "단위", "기준일"]].to_csv(index=False, lineterminator="\n")
+    metric_rows = metrics[["metric_id", "지표", "값", "단위"]].to_csv(index=False, lineterminator="\n")
+    return f"{CLAIM_RULES}\n\n[공통 표]\n{rows}\n[지표 표]\n{metric_rows}\n[글]\n{text.strip()}\n"
+
+
+def _call_gemini(prompt, api_key, model, fallback_model):
+    """Return (answer text, model that answered). Same retry rule as setup/00_setup_check.ipynb:
+    wait 5/10/20 s on 429/500/503, then try the fallback model once."""
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(api_key=api_key)
+    config = types.GenerateContentConfig(response_mime_type="application/json", temperature=0)
+
+    def ask(name):
+        return client.models.generate_content(model=name, contents=prompt, config=config).text or ""
+
+    try:
+        for attempt, wait in enumerate((*RETRY_WAITS, None)):
+            try:
+                return ask(model), model
+            except Exception as error:
+                if getattr(error, "code", None) not in RETRY_CODES:
+                    raise
+                if wait is None:
+                    break
+                print(f"⏳ Gemini가 붐벼요. {wait}초 기다렸다가 다시 시도해요 ({attempt + 1}/{len(RETRY_WAITS)})")
+                time.sleep(wait)
+        print(f"⏳ 계속 안 돼서 예비 모델({fallback_model})로 한 번 더 시도해요")
+        return ask(fallback_model), fallback_model
+    except Exception as error:
+        code = getattr(error, "code", None)
+        raise CollectError(f"Gemini를 부르지 못했어요 ({code or type(error).__name__}). 잠시 뒤 다시 실행해 주세요") from None
+
+
+def _record_path(path):
+    return path.with_name(f"{path.stem}_기록.json")
+
+
+def ask_claims(prompt, api_key, path, model, fallback_model, overwrite=False):
+    """Save Gemini's raw answer at path and a record (question, model, time) beside it; return path.
+
+    The saved answer is reused only when the saved question is identical to this one,
+    so editing the text never checks an old answer. The record is removed before the
+    answer is rewritten, so a record on disk always belongs to the answer next to it.
+    """
+    path = Path(path)
+    record_path = _record_path(path)
+    if not overwrite and path.exists() and record_path.exists():
+        try:
+            saved = json.loads(record_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            saved = {}
+        if saved.get("질문") == prompt:
+            print(f"♻ 같은 질문의 저장된 답을 다시 써요 ({saved.get('모델')}, {saved.get('호출 시각')})")
+            return path
+    if not api_key:
+        raise SkipStep("Gemini 키가 없어요 (Secrets에 GEMINI_API_KEY 등록 후 다시)")
+    answer, used_model = _call_gemini(prompt, api_key, model, fallback_model)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record_path.unlink(missing_ok=True)
+    path.write_text(answer, encoding="utf-8")
+    record = {"질문": prompt, "모델": used_model, "호출 시각": now_kst()}
+    record_path.write_text(json.dumps(record, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"✅ Gemini 답 저장: {path} ({used_model})")
+    return path
+
+
+def _salvage(text):
+    """Split a broken answer into claim objects; a piece that does not parse stays a string.
+    Claims hold no nested objects, so every '{' starts a new claim."""
+    decoder, items = json.JSONDecoder(), []
+    start = text.find("{")
+    while start != -1:
+        try:
+            item, end = decoder.raw_decode(text, start)
+        except json.JSONDecodeError:
+            end = text.find("{", start + 1)
+            items.append(text[start:end if end != -1 else len(text)])
+            start = end
+            continue
+        items.append(item)
+        start = text.find("{", end)
+    return items
+
+
+def _claim_from_answer(item, n, seen):
+    if not isinstance(item, dict):
+        found = re.search(r'"claim_id"\s*:\s*"([^"]+)"', item) if isinstance(item, str) else None
+        claim_id = found.group(1) if found and found.group(1) not in seen else f"AI-{n}"
+        seen.add(claim_id)
+        return {"claim_id": claim_id, "문장": "", "근거": [],
+                "형식 오류": f"JSON이 깨짐: {_text(item).strip()[:80]}"}
+    problems = []
+    claim_id = item.get("claim_id")
+    if not isinstance(claim_id, str) or not claim_id.strip():
+        problems.append("claim_id 없음")
+        claim_id = f"AI-{n}"
+    elif claim_id in seen:
+        problems.append(f"claim_id {claim_id} 중복")
+        claim_id = f"{claim_id} (AI-{n})"
+    seen.add(claim_id)
+    sentence = item.get("문장")
+    if not isinstance(sentence, str):
+        problems.append("문장 없음")
+    evidence = item.get("근거")
+    if not isinstance(evidence, list) or any(not isinstance(ev, list) or len(ev) != 3 for ev in evidence):
+        problems.append("근거는 [근거 id, 숫자, 단위] 목록이어야 함")
+        evidence = []
+    claim = {"claim_id": claim_id, "문장": _text(sentence),
+             "근거": [(_text(ev_id).strip(), number, _text(unit)) for ev_id, number, unit in evidence]}
+    if problems:
+        claim["형식 오류"] = "; ".join(problems)
+    return claim
+
+
+def load_claims(path):
+    """Read a saved Gemini answer into check_claims input. Never raises on a bad answer:
+    each claim that cannot be read becomes a claim carrying "형식 오류"."""
+    text = Path(path).read_text(encoding="utf-8")
+    body = re.sub(r"^\s*```(?:json)?\s*|\s*```\s*$", "", text)
+    try:
+        items = json.loads(body)
+        items = items if isinstance(items, list) else [items]
+    except json.JSONDecodeError:
+        items = _salvage(body)
+    seen = set()
+    claims = [_claim_from_answer(item, n, seen) for n, item in enumerate(items, 1)]
+    return claims or [{"claim_id": "AI-1", "문장": "", "근거": [], "형식 오류": "AI 답변에서 주장을 하나도 못 찾음"}]
