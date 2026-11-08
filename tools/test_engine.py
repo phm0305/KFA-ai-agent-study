@@ -4,6 +4,7 @@ Run: python -m pytest tools/test_engine.py -q
 """
 
 import json
+import urllib.parse
 
 import pandas as pd
 import pytest
@@ -301,3 +302,28 @@ def test_saved_answer_reused_only_for_the_same_question(tmp_path, monkeypatch):
     (tmp_path / "ai_claims_기록.json").unlink()
     ask("question B")
     assert len(calls) == 4
+
+
+def test_backup_answer_used_only_for_the_same_question(tmp_path, monkeypatch, capsys):
+    record = {"질문": "default question", "모델": "flash", "호출 시각": "2026-11-09 01:05"}
+    files = {"ai_claims_000660_2025.txt": "saved answer", "ai_claims_000660_2025_기록.json": json.dumps(record)}
+
+    class Response:
+        def __init__(self, text):
+            self.content = text.encode("utf-8")
+
+    def fake_get(url):
+        name = urllib.parse.unquote(url.rsplit("/", 1)[1])
+        if name not in files:
+            raise c.CollectError("404")
+        return Response(files[name])
+
+    monkeypatch.setattr(e, "http_get", fake_get)
+    path = tmp_path / "w04_ai_claims.txt"
+
+    assert e.use_backup("edited question", path, "ai_claims_000660_2025") is None
+    assert not path.exists()
+    assert e.use_backup("default question", path, "ai_claims_000660_2025") == path
+    assert path.read_text(encoding="utf-8") == "saved answer"
+    assert "스터디장이 미리 받아 둔 답" in capsys.readouterr().out
+    assert e.use_backup("default question", path, "ai_claims_005930_2025") is None

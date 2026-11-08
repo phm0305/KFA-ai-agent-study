@@ -13,6 +13,7 @@ change. Member-facing messages are Korean on purpose; identifiers stay English.
     render_check()    주장 목록·지표 표·숫자 대조 표·출처 목록을 마크다운 파일 하나로 저장해요
     claims_prompt()   Gemini에게 보낼 질문(규칙 + 공통 표 + 지표 표 + 글)을 만들어요
     ask_claims()      Gemini 답을 원문 그대로 저장해요. 질문이 저장된 것과 똑같으면 다시 부르지 않아요
+    use_backup()      Gemini가 안 될 때, 질문이 똑같으면 스터디장이 미리 받아 둔 답(backup/)을 써요
     load_claims()     저장된 답을 주장 목록으로 읽어요. 깨진 주장은 REVIEW로 넘겨요
 """
 
@@ -23,10 +24,11 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Literal
+from urllib.parse import quote
 
 import pandas as pd
 
-from collect import REVIEW, CollectError, SkipStep, is_blank, now_kst
+from collect import REVIEW, CollectError, SkipStep, http_get, is_blank, now_kst
 
 RID_PARTS = ["종목코드", "항목", "기준", "기준일", "출처"]
 SOURCE_KEY = ["출처", "출처 URL"]
@@ -304,7 +306,7 @@ def _claim_number_rows(checked):
             f"{row['claim_id']} {row['문장']}",
             "" if is_blank(number) else f"{number} {unit}",
             "" if is_blank(actual) or written is None else _format_actual(actual, written, unit),
-            f"{row['판정']} ({row['이유']})" if row["판정"] == CHECK else row["판정"],
+            f"{row['판정']}: {row['이유']}" if row["판정"] == CHECK else row["판정"],
         ]
 
 
@@ -331,6 +333,7 @@ def render_check(checked, metrics, sources, path):
     return path
 
 
+BACKUP_URL = "https://raw.githubusercontent.com/phm0305/KFA-ai-agent-study/main/backup/"
 RETRY_CODES = (429, 500, 503)
 RETRY_WAITS = (5, 10, 20)
 CLAIM_RULES = """아래 글에서 숫자가 들어간 주장을 모두 찾아, 각 숫자의 근거를 공통 표나 지표 표에서 골라 줘.
@@ -414,6 +417,30 @@ def ask_claims(prompt, api_key, path, model, fallback_model, overwrite=False):
     record = {"질문": prompt, "모델": used_model, "호출 시각": now_kst()}
     record_path.write_text(json.dumps(record, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"✅ Gemini 답 저장: {path} ({used_model})")
+    return path
+
+
+def use_backup(prompt, path, name):
+    """Fall back to the answer the study lead saved in backup/<name>.txt when Gemini fails.
+
+    Used only when the backup's question is identical to this one, so a member who changed
+    the text or the company never gets an answer to a different question. Returns path or None.
+    """
+    path = Path(path)
+    try:
+        record = json.loads(http_get(BACKUP_URL + quote(f"{name}_기록.json")).content.decode("utf-8"))
+        if record.get("질문") != prompt:
+            print("⏭ 미리 받아 둔 답은 기본 글·기본 종목용이라 지금 질문에는 쓸 수 없어요. 잠시 뒤 다시 실행해 주세요")
+            return None
+        answer = http_get(BACKUP_URL + quote(f"{name}.txt")).content.decode("utf-8")
+    except (CollectError, json.JSONDecodeError):
+        print("⏭ 미리 받아 둔 답이 없어요. 잠시 뒤 다시 실행해 주세요")
+        return None
+    record_path = _record_path(path)
+    record_path.unlink(missing_ok=True)
+    path.write_text(answer, encoding="utf-8")
+    record_path.write_text(json.dumps(record, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"🗂 Gemini 호출이 안 돼서 스터디장이 미리 받아 둔 답을 썼어요 ({record.get('모델')}, {record.get('호출 시각')})")
     return path
 
 

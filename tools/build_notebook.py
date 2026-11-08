@@ -1,8 +1,8 @@
-"""Build notebooks/02_template_collect.ipynb and notebooks/03_engine_v0.ipynb.
+"""Build notebooks/02_template_collect.ipynb, 03_engine_v0.ipynb and 04_checker.ipynb.
 
 tools/collect.py and tools/engine.py are the single source of the shared code; the
 notebooks embed them in collapsed cells so members can 'Run all' without importing
-anything. Rebuild both whenever either file changes.
+anything. Rebuild all three whenever either file changes.
 Run from the repo root: python tools/build_notebook.py
 """
 
@@ -15,12 +15,25 @@ ENGINE = (ROOT / "tools" / "engine.py").read_text(encoding="utf-8")
 
 # In the notebook these names already exist from the collect.py cell, and there is no
 # collect module to import. Matching the exact line makes any import change stop the build.
-COLLECT_IMPORT = "from collect import REVIEW, CollectError, SkipStep, is_blank, now_kst\n"
+COLLECT_IMPORT = "from collect import REVIEW, CollectError, SkipStep, http_get, is_blank, now_kst\n"
 if ENGINE.count(COLLECT_IMPORT) != 1:
     raise SystemExit("engine.py's collect import changed; update COLLECT_IMPORT in build_notebook.py")
 ENGINE_CELL = ENGINE.replace(COLLECT_IMPORT, "")
 
 cells = []
+
+# 03 and 04 collect the same way; one string keeps the two notebooks from drifting apart.
+DART_TWO_YEARS = """
+dart_years = []
+for year in (YEAR - 1, YEAR):
+    result = run_step(f"DART {year} 사업보고서", 1, lambda: collect_dart(STOCK_CODE, year, 4, "CFS", DART_API_KEY))
+    if result is not None:
+        dart_years.append(result)
+
+dart = pd.concat(dart_years, ignore_index=True) if dart_years else None
+if dart is not None:
+    display(dart[["종목명", "항목", "값", "단위", "기준", "기준일", "공시일", "상태"]])
+"""
 
 
 def md(text):
@@ -552,17 +565,7 @@ md("""
 사업보고서(4분기)의 **연결** 재무제표에서 6개 계정을 `YEAR`와 그 전년도로 받아요. 해마다 따로 받아서, 한 해만 실패해도 어느 해인지 보여요.
 """)
 
-code("""
-dart_years = []
-for year in (YEAR - 1, YEAR):
-    result = run_step(f"DART {year} 사업보고서", 1, lambda: collect_dart(STOCK_CODE, year, 4, "CFS", DART_API_KEY))
-    if result is not None:
-        dart_years.append(result)
-
-dart = pd.concat(dart_years, ignore_index=True) if dart_years else None
-if dart is not None:
-    display(dart[["종목명", "항목", "값", "단위", "기준", "기준일", "공시일", "상태"]])
-""")
+code(DART_TWO_YEARS)
 
 md("""
 ## 2. 꼬리표 점검
@@ -730,3 +733,179 @@ md("""
 """)
 
 write_notebook("03_engine_v0.ipynb")
+
+
+md("""
+# 🔎 4회차 검증기: AI가 쓴 숫자를 원본과 대조하기
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/phm0305/KFA-ai-agent-study/blob/main/notebooks/04_checker.ipynb)
+
+글에 나온 숫자가 **어느 원본 줄에서 왔는지** Gemini가 고르고, 맞는지는 **코드가** 원본과 비교해서 판정해요.
+
+```
+DART 2개 연도 ──▶ rid · [S#] ──▶ 지표 [M#] ──▶ Gemini가 주장·근거 뽑기 ──▶ 답 원문 저장
+                                                                      │
+                     결과 파일 ◀── 대조 (PASS / FIX / REVIEW) ◀── 저장본 읽기 ◀┘
+```
+
+- **PASS** 숫자가 원본과 맞음 · **FIX** 틀림(실제 값을 옆에 보여줘요) · **REVIEW** 사람이 봐야 함(근거 없음, 단위 문제 등)
+
+**사용법:** 아래 설정 셀의 `STOCK_CODE`, `YEAR`, `TEXT` 세 개만 바꾸고 위 메뉴 **런타임 → 모두 실행**.
+"보안 비밀 액세스 허용" 창이 뜨면 **허용**을 눌러요. 중간에 뭐가 실패해도 멈추지 않고 끝까지 가요.
+""")
+
+md("""
+**설정**
+
+- `STOCK_CODE`: 종목코드 6자리. 따옴표 안에, 앞의 0까지 적어요
+- `YEAR`: 사업보고서 연도. 이 해와 그 전년도 두 해를 받아요
+- `TEXT`: 검증할 글. 기본값은 SK하이닉스 2025년으로 미리 시험해 본 다섯 문장이에요(일부러 틀린 숫자 52%가 들어 있어요). 내 글로 바꿔 넣어도 돼요
+""")
+
+code('''
+STOCK_CODE = "000660"
+YEAR = 2025
+TEXT = """
+SK하이닉스의 2025년 매출은 97.1조 원으로 전년보다 46.8% 늘었다. 영업이익률은 52%를 기록했고, 전년 대비 13.1%포인트 높아졌다. 부채비율은 46% 수준이다. 부채비율은 전년보다 16.2%p 낮아졌다. HBM 수요가 실적을 이끌었다.
+"""
+''')
+
+code("""
+#@title 📦 설치 (1분) { display-mode: "form" }
+import subprocess, sys
+proc = subprocess.run([sys.executable, "-m", "pip", "install", "-q", "finance-datareader", "python-dotenv", "google-genai"],
+                      capture_output=True, text=True)
+print("✅ 설치 완료" if proc.returncode == 0 else "❌ 설치 실패: 런타임 → 런타임 다시 시작 → 모두 실행")
+""")
+
+code("#@title 🧰 공통 도구 (고치지 말고 실행만. 코드가 궁금하면 이 셀을 더블클릭) { display-mode: \"form\" }\n"
+     + TOOLS.strip("\n")
+     + "\n\nSTEP_RESULTS.clear()\nprint(\"✅ 공통 도구 준비 완료\")")
+
+code("#@title ⚙️ 엔진 도구 (고치지 말고 실행만) { display-mode: \"form\" }\n"
+     + ENGINE_CELL.strip("\n")
+     + "\n\nprint(\"✅ 엔진 도구 준비 완료\")")
+
+code("""
+DART_API_KEY = get_key("DART_API_KEY")
+GEMINI_API_KEY = get_key("GEMINI_API_KEY")
+print("DART 키:", "등록됨 ✅" if DART_API_KEY else "없음 ⏭ (Secrets에 DART_API_KEY + 노트북 액세스 켜기)")
+print("Gemini 키:", "등록됨 ✅" if GEMINI_API_KEY else "없음 ⏭ (없으면 기본 글일 때만 미리 받아 둔 답을 써요)")
+""")
+
+md("""
+## 1. DART에서 두 해 받기
+
+3회차와 같아요. 사업보고서의 **연결** 재무제표 6개 계정을 `YEAR`와 그 전년도로 받아요.
+""")
+
+code(DART_TWO_YEARS)
+
+md("""
+## 2. 줄 이름표(rid)와 출처 번호([S#])
+
+Gemini는 글 속 숫자마다 아래 표의 **rid**(줄 이름표) 하나를 골라 근거로 적어요. [S#]는 그 줄이 어느 공시에서 왔는지예요.
+""")
+
+code("""
+dart_sources, dart_tagged = None, None
+if dart is None:
+    print("⏭ DART 결과가 없어서 건너뛰어요 (위 셀의 ❌·⏭ 메모를 먼저 확인)")
+else:
+    dart_sources, dart_tagged = build_sources(with_ids(dart))
+    display(dart_sources)
+    display(dart_tagged[["source_id", "rid", "항목", "값", "단위", "기준일"]])
+""")
+
+md("""
+## 3. 지표 [M#]
+
+매출 성장률·영업이익률·부채비율을 위 줄들로만 계산해요. 계산에 쓴 줄(입력 rid)과 출처 번호가 같이 나와요. 입력 줄이 없으면 값을 비우고 이유를 적어요.
+""")
+
+code("""
+metrics = None
+if dart_tagged is None:
+    print("⏭ 줄 이름표가 없어서 건너뛰어요")
+else:
+    metrics = compute_metrics(dart_tagged, METRIC_SPECS, STOCK_CODE, f"{YEAR}-{QUARTER_END[4]}")
+    display(metrics)
+""")
+
+md("""
+## 4. Gemini에게 글을 보내 주장 저장
+
+질문(규칙 + 위 두 표 + 글)을 보내고, 답을 **받은 그대로** 파일에 저장해요. 같은 질문으로 다시 돌리면 Gemini를 또 부르지 않고 저장한 답을 써요(♻).
+Gemini가 안 되면, 기본 글·기본 종목일 때만 스터디장이 미리 받아 둔 답을 써요(🗂).
+""")
+
+code("""
+GEMINI_MODEL = "gemini-3.8-flash"
+GEMINI_FALLBACK_MODEL = "gemini-3.5-flash-lite"
+AI_FILE = f"w04_ai_claims_{STOCK_CODE}_{YEAR}.txt"
+
+claims_path = None
+if metrics is None:
+    print("⏭ 지표가 없어서 건너뛰어요")
+else:
+    prompt = claims_prompt(dart_tagged, metrics, TEXT)
+    try:
+        claims_path = ask_claims(prompt, GEMINI_API_KEY, AI_FILE, GEMINI_MODEL, GEMINI_FALLBACK_MODEL)
+    except (CollectError, SkipStep) as error:
+        print("⚠", error)
+        claims_path = use_backup(prompt, AI_FILE, f"ai_claims_{STOCK_CODE}_{YEAR}")
+""")
+
+md("""
+## 5. 저장한 답 읽기
+
+먼저 Gemini 답을 **원문 그대로** 보여주고, 그걸 주장 목록으로 읽어요. 형식이 깨진 주장은 멈추지 않고 그 주장만 REVIEW로 넘겨요.
+""")
+
+code("""
+claims = None
+if claims_path is None:
+    print("⏭ 저장한 답이 없어서 건너뛰어요")
+else:
+    print(Path(claims_path).read_text(encoding="utf-8"))
+    claims = load_claims(claims_path)
+    display(pd.DataFrame(claims))
+""")
+
+md("""
+## 6. 숫자 대조
+
+주장에 적힌 숫자를 근거(지표나 원본 줄)와 같은 단위로 맞춰 비교해요. 적은 숫자의 마지막 자리 반올림 차이까지는 PASS예요(46.8%면 ±0.05%p).
+""")
+
+code("""
+checked = None
+if claims is None:
+    print("⏭ 주장 목록이 없어서 건너뛰어요")
+else:
+    checked = check_claims(claims, metrics, dart_tagged)
+    display(checked)
+""")
+
+md("""
+## 7. 결과 파일 미리보기
+
+주장 목록([S#] 포함), 지표 표, 숫자 대조 표, 출처 목록을 마크다운 파일 하나로 저장하고 화면에 그대로 보여줘요.
+""")
+
+code("""
+from IPython.display import Markdown
+
+if checked is None:
+    print("⏭ 대조 결과가 없어서 건너뛰어요")
+else:
+    report = render_check(checked, metrics, dart_sources, f"w04_check_{STOCK_CODE}_{YEAR}.md")
+    print("💾 저장:", report)
+    display(Markdown(report.read_text(encoding="utf-8")))
+""")
+
+md("""
+> 💾 답 원문·기록·결과 파일은 Colab 런타임이 끝나면 사라져요. **파일 → GitHub에 사본 저장**으로 `w04_검증기.ipynb`를 내 레포에 올리면 답 원문과 대조 결과까지 같이 올라가요.
+""")
+
+write_notebook("04_checker.ipynb")
