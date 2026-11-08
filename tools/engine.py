@@ -383,8 +383,19 @@ def _call_gemini(prompt, api_key, model, fallback_model):
         print(f"⏳ 계속 안 돼서 예비 모델({fallback_model})로 한 번 더 시도해요")
         return ask(fallback_model), fallback_model
     except Exception as error:
-        code = getattr(error, "code", None)
-        raise CollectError(f"Gemini를 부르지 못했어요 ({code or type(error).__name__}). 잠시 뒤 다시 실행해 주세요") from None
+        raise CollectError(_gemini_failure(getattr(error, "code", None), type(error).__name__)) from None
+
+
+def _gemini_failure(code, error_name):
+    """Member-facing reason a Gemini call failed. Only server-side trouble says 'try later';
+    a key or model problem names what to fix instead."""
+    if code in (400, 401, 403):
+        return f"Gemini가 키를 받아 주지 않았어요 ({code}). Secrets의 GEMINI_API_KEY 값을 다시 확인해 주세요 (SETUP.md 9번)"
+    if code == 404:
+        return "Gemini 모델 이름을 찾을 수 없어요 (404). 스터디장에게 알려 주세요"
+    if code in RETRY_CODES:
+        return f"Gemini 서버가 계속 붐비거나 오류가 나요 ({code}). 내 설정 문제가 아니에요. 잠시 뒤 다시 실행해 주세요"
+    return f"Gemini를 부르지 못했어요 ({code or error_name}). 인터넷 연결을 확인하고 잠시 뒤 다시 실행해 주세요"
 
 
 def _record_path(path):
@@ -409,7 +420,7 @@ def ask_claims(prompt, api_key, path, model, fallback_model, overwrite=False):
             print(f"♻ 같은 질문의 저장된 답을 다시 써요 ({saved.get('모델')}, {saved.get('호출 시각')})")
             return path
     if not api_key:
-        raise SkipStep("Gemini 키가 없어요 (Secrets에 GEMINI_API_KEY 등록 후 다시)")
+        raise SkipStep("Gemini 키가 없어요. Secrets에 GEMINI_API_KEY를 등록하고 노트북 액세스를 켠 뒤 다시 실행해 주세요 (SETUP.md 9번)")
     answer, used_model = _call_gemini(prompt, api_key, model, fallback_model)
     path.parent.mkdir(parents=True, exist_ok=True)
     record_path.unlink(missing_ok=True)
@@ -430,11 +441,11 @@ def use_backup(prompt, path, name):
     try:
         record = json.loads(http_get(BACKUP_URL + quote(f"{name}_기록.json")).content.decode("utf-8"))
         if record.get("질문") != prompt:
-            print("⏭ 미리 받아 둔 답은 기본 글·기본 종목용이라 지금 질문에는 쓸 수 없어요. 잠시 뒤 다시 실행해 주세요")
+            print("⏭ 미리 받아 둔 답은 기본 글·기본 종목용이라 지금 질문에는 쓸 수 없어요. 위 ⚠ 줄대로 고친 뒤 다시 실행해 주세요")
             return None
         answer = http_get(BACKUP_URL + quote(f"{name}.txt")).content.decode("utf-8")
     except (CollectError, json.JSONDecodeError):
-        print("⏭ 미리 받아 둔 답이 없어요. 잠시 뒤 다시 실행해 주세요")
+        print("⏭ 미리 받아 둔 답이 없어요. 위 ⚠ 줄대로 고친 뒤 다시 실행해 주세요")
         return None
     record_path = _record_path(path)
     record_path.unlink(missing_ok=True)

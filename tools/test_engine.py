@@ -327,3 +327,29 @@ def test_backup_answer_used_only_for_the_same_question(tmp_path, monkeypatch, ca
     assert path.read_text(encoding="utf-8") == "saved answer"
     assert "스터디장이 미리 받아 둔 답" in capsys.readouterr().out
     assert e.use_backup("default question", path, "ai_claims_005930_2025") is None
+
+
+def test_missing_key_and_busy_server_give_different_advice(tmp_path, monkeypatch):
+    genai = pytest.importorskip("google.genai")
+
+    class Busy(Exception):
+        code = 503
+
+    class FakeClient:
+        def __init__(self, api_key):
+            self.models = self
+
+        def generate_content(self, **kwargs):
+            raise Busy()
+
+    monkeypatch.setattr(genai, "Client", FakeClient)
+    monkeypatch.setattr(e.time, "sleep", lambda seconds: None)
+    path = tmp_path / "answer.txt"
+
+    with pytest.raises(c.SkipStep) as missing:
+        e.ask_claims("question", None, path, "flash", "flash-lite")
+    with pytest.raises(c.CollectError) as busy:
+        e.ask_claims("question", "key", path, "flash", "flash-lite")
+
+    assert "SETUP.md 9번" in str(missing.value) and "잠시 뒤" not in str(missing.value)
+    assert "(503)" in str(busy.value) and "잠시 뒤" in str(busy.value) and "SETUP" not in str(busy.value)
