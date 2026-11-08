@@ -32,7 +32,10 @@ COMPUTED = "계산됨"
 PASS, FIX, CHECK = "PASS", "FIX", "REVIEW"
 UNITS = {
     "원": ("원", Decimal(1)),
+    "천원": ("원", Decimal(10) ** 3),
+    "백만원": ("원", Decimal(10) ** 6),
     "억원": ("원", Decimal(10) ** 8),
+    "십억원": ("원", Decimal(10) ** 9),
     "조원": ("원", Decimal(10) ** 12),
     "%": ("%", Decimal(1)),
 }
@@ -181,19 +184,32 @@ def _written_number(number):
     return value if value.is_finite() else None
 
 
+def _unit_scales(unit, actual_unit):
+    """Return ((written scale, actual scale), None) or (None, reason).
+
+    Identical unit text compares 1:1 whatever the unit is, because the rid or M# already
+    fixes what is measured. Blank units are refused, or two blanks would match as equal text.
+    """
+    written, source = "".join(_text(unit).split()), "".join(_text(actual_unit).split())
+    if not written or not source:
+        return None, f"단위 없음 (문장 '{_text(unit)}' / 근거 '{_text(actual_unit)}')"
+    if written == source:
+        return (Decimal(1), Decimal(1)), None
+    if written in UNITS and source in UNITS and UNITS[written][0] == UNITS[source][0]:
+        return (UNITS[written][1], UNITS[source][1]), None
+    return None, (f"단위가 안 맞음: 문장 '{_text(unit)}' / 근거 '{_text(actual_unit)}' "
+                  "(단위 글자가 같거나, 원·천원·백만원·억원·십억원·조원끼리만 바꿔 비교)")
+
+
 def _check_one(number, unit, actual, actual_unit):
     """Return (actual in the written unit or None, verdict, reason)."""
     written = _written_number(number)
     if written is None:
         return None, CHECK, f"적은 숫자 '{number}'를 숫자로 못 읽음"
-    if unit not in UNITS:
-        return None, CHECK, f"모르는 단위 '{unit}' (원·억원·조원·%만 지원)"
-    if actual_unit not in UNITS:
-        return None, CHECK, f"근거 단위 '{actual_unit}'는 아직 지원 안 함 (원·억원·조원·%만 지원)"
-    dimension, scale = UNITS[unit]
-    actual_dimension, actual_scale = UNITS[actual_unit]
-    if dimension != actual_dimension:
-        return None, CHECK, f"단위가 안 맞음: 문장 {unit} / 근거 {actual_unit}"
+    scales, problem = _unit_scales(unit, actual_unit)
+    if problem:
+        return None, CHECK, problem
+    scale, actual_scale = scales
     actual_base = Decimal(str(actual)) * actual_scale
     tolerance = Decimal("0.5").scaleb(written.as_tuple().exponent) * scale
     shown = float(actual_base / scale)
@@ -295,8 +311,9 @@ def render_check(checked, metrics, sources, path):
     lines += ["", "## 숫자 대조", ""]
     lines += _table(["주장", "적은 숫자", "실제 값", "판정"], _claim_number_rows(checked))
     lines += ["", "## 출처", ""]
-    lines += _table(["번호", "이름", "원본 URL", "신뢰도"], [
-        [f"[{row['source_id']}]", row["출처"], row["출처 URL"], row["신뢰도"]] for _, row in sources.iterrows()])
+    lines += _table(["번호", "이름", "기준일 범위", "원본 URL", "신뢰도"], [
+        [f"[{row['source_id']}]", row["출처"], row["기준일 범위"], row["출처 URL"], row["신뢰도"]]
+        for _, row in sources.iterrows()])
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

@@ -199,3 +199,37 @@ def test_render_check_writes_four_parts_and_fix_actual_in_written_unit(tmp_path)
     assert "- C-1 매출이 25% 성장했다 [S1][S2]" in text
     assert "| C-2 영업이익률은 20.4%다 | 20.4 % | 20.000 % | FIX |" in text
     assert f"| [S3] | {PRICE} |" in text
+    assert f"| [S1] | {DART} | 2024-12-31 | {URL_2024} | 상 |" in text
+
+
+def test_units_same_text_money_scales_and_spaces():
+    rows = pd.DataFrame([
+        {"항목": "원/달러 환율", "값": 1380.5, "단위": "원/달러"},
+        {"항목": "매출액(연간)", "값": 97_146_675, "단위": "백만원"},
+        {"항목": "기준금리 변동", "값": 0.25, "단위": "%p"},
+    ])
+    records = e.build_sources(e.with_ids(c.finalize(
+        rows, level=1, source="단위 테스트 표", source_url="https://example.com", reliability="상",
+        basis=c.NOT_APPLICABLE, base_date="2025-12-31", disclosed=c.SAME_AS_DATE)))[1]
+    rid = dict(zip(records["항목"], records["rid"]))
+    claims = [
+        {"claim_id": "same-text", "문장": "환율 1,380.5원/달러", "근거": [(rid["원/달러 환율"], "1,380.5", "원/달러")]},
+        {"claim_id": "million-to-eok", "문장": "매출 971,467억원", "근거": [(rid["매출액(연간)"], "971,467", "억원")]},
+        {"claim_id": "spaced", "문장": "매출 97.1조 원", "근거": [(rid["매출액(연간)"], "97.1", "조 원")]},
+        {"claim_id": "pp-as-percent", "문장": "금리 0.25% 올랐다", "근거": [(rid["기준금리 변동"], "0.25", "%")]},
+    ]
+    checked = e.check_claims(claims, metrics_of(records), records)
+
+    assert verdicts(checked) == {"same-text": e.PASS, "million-to-eok": e.PASS, "spaced": e.PASS,
+                                 "pp-as-percent": e.CHECK}
+
+
+def test_blank_units_on_both_sides_review():
+    records = financials()
+    unitless = (e.MetricSpec("단위 없는 영업이익률", "", "영업이익(연간) ÷ 매출액(연간) × 100", "ratio",
+                             ("영업이익(연간)", "매출액(연간)")),)
+    metrics = e.compute_metrics(records, unitless, "000660", "2025-12-31")
+    checked = e.check_claims([{"claim_id": "C", "문장": "영업이익률 20", "근거": [("M1", 20, " ")]}], metrics, records)
+
+    assert checked["판정"].tolist() == [e.CHECK]
+    assert "단위 없음" in checked.loc[0, "이유"]
