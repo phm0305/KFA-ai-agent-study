@@ -10,10 +10,12 @@ change. Member-facing messages are Korean on purpose; identifiers stay English.
     build_sources()   출처 목록 [S1] [S2] ...을 만들고, 줄마다 어느 출처인지(source_id) 붙여요
     compute_metrics() 지표 정의 표(METRIC_SPECS)대로 지표 [M1] [M2] ...을 계산해요. 입력 줄이 없으면 값을 비우고 이유를 적어요
     check_claims()    주장에 적은 숫자를 지표나 원본 줄과 대조해서 PASS / FIX / REVIEW로 판정해요
+    render_check()    주장 목록·지표 표·숫자 대조 표·출처 목록을 마크다운 파일 하나로 저장해요
 """
 
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from typing import Literal
 
 import pandas as pd
@@ -197,8 +199,13 @@ def _check_one(number, unit, actual, actual_unit):
     shown = float(actual_base / scale)
     if abs(written * scale - actual_base) <= tolerance:
         return shown, PASS, ""
+    return shown, FIX, f"실제 값은 {_format_actual(shown, written, unit)}"
+
+
+def _format_actual(actual, written, unit):
+    """Two more decimals than the written number, so a FIX shows how far off it is."""
     places = max(-written.as_tuple().exponent, 0) + 2
-    return shown, FIX, f"실제 값은 {shown:,.{places}f} {unit}"
+    return f"{actual:,.{places}f} {unit}"
 
 
 def _lookup(evidence_id, metrics, records):
@@ -250,3 +257,47 @@ def check_claims(claims, metrics, records):
         for row in rows:
             out.append({"claim_id": claim.get("claim_id"), "문장": claim.get("문장"), **row, "출처 번호": label})
     return pd.DataFrame(out, columns=CHECK_COLUMNS)
+
+
+def _cell(value):
+    return _text(value).replace("|", "\\|").replace("\n", " ")
+
+
+def _table(header, rows):
+    lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
+    lines += ["| " + " | ".join(_cell(v) for v in row) + " |" for row in rows]
+    return lines
+
+
+def _claim_number_rows(checked):
+    for _, row in checked.iterrows():
+        number, unit, actual = row["적은 숫자"], row["적은 단위"], row["실제 값"]
+        written = _written_number(number)
+        yield [
+            f"{row['claim_id']} {row['문장']}",
+            "" if is_blank(number) else f"{number} {unit}",
+            "" if is_blank(actual) or written is None else _format_actual(actual, written, unit),
+            f"{row['판정']} ({row['이유']})" if row["판정"] == CHECK else row["판정"],
+        ]
+
+
+def render_check(checked, metrics, sources, path):
+    """Write claims, metrics, number checks and sources as one markdown file; return its path."""
+    claims = checked.drop_duplicates("claim_id")
+    lines = ["# 숫자 대조 결과", "", "## 주장", ""]
+    lines += [f"- {row['claim_id']} {row['문장']} {row['출처 번호']}".rstrip() for _, row in claims.iterrows()]
+    lines += ["", "## 지표", ""]
+    lines += _table(["번호", "지표", "값", "계산식", "출처", "기준일"], [
+        [row["metric_id"], row["지표"],
+         f"확인 필요: {row['이유']}" if is_blank(row["값"]) else f"{row['값']:,.2f} {row['단위']}",
+         row["계산식"], "".join(f"[{sid}]" for sid in row["source_id"]), row["기준일"]]
+        for _, row in metrics.iterrows()])
+    lines += ["", "## 숫자 대조", ""]
+    lines += _table(["주장", "적은 숫자", "실제 값", "판정"], _claim_number_rows(checked))
+    lines += ["", "## 출처", ""]
+    lines += _table(["번호", "이름", "원본 URL", "신뢰도"], [
+        [f"[{row['source_id']}]", row["출처"], row["출처 URL"], row["신뢰도"]] for _, row in sources.iterrows()])
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path

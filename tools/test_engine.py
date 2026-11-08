@@ -181,3 +181,21 @@ def test_round_number_ending_in_zero_is_read_to_the_ones_place():
     checked = e.check_claims(claims, metrics_of(records), records)
 
     assert verdicts(checked) == {"rounded": e.FIX, "jo": e.PASS}
+
+
+def test_render_check_writes_four_parts_and_fix_actual_in_written_unit(tmp_path):
+    records = financials()
+    sources = e.build_sources(records[c.COLUMNS])[0]
+    metrics = metrics_of(records)
+    claims = [
+        {"claim_id": "C-1", "문장": "매출이 25% 성장했다", "근거": [("M1", 25, "%")]},
+        {"claim_id": "C-2", "문장": "영업이익률은 20.4%다", "근거": [("M2", 20.4, "%")]},
+    ]
+    path = e.render_check(e.check_claims(claims, metrics, records), metrics, sources, tmp_path / "out" / "check.md")
+    text = path.read_text(encoding="utf-8")
+
+    for heading in ("## 주장", "## 지표", "## 숫자 대조", "## 출처"):
+        assert heading in text
+    assert "- C-1 매출이 25% 성장했다 [S1][S2]" in text
+    assert "| C-2 영업이익률은 20.4%다 | 20.4 % | 20.000 % | FIX |" in text
+    assert f"| [S3] | {PRICE} |" in text
