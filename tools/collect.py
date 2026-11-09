@@ -439,7 +439,10 @@ DART_ITEMS = {
     "ifrs-full_Liabilities": ("부채총계", False),
     "ifrs-full_Equity": ("자본총계", False),
 }
+REPO_RAW_URL = "https://raw.githubusercontent.com/phm0305/KFA-ai-agent-study/main/"
+DART_CORPS_FILE = "backup/dart_corps.csv"
 _DART_CORPS = {}
+_DART_CORPS_LOADED = set()
 
 
 def _dart_status(data):
@@ -448,22 +451,43 @@ def _dart_status(data):
         raise CollectError(f"DART {status}: {DART_ERRORS.get(status, data.get('message', '알 수 없는 응답'))}")
 
 
-# [1단계] 종목코드 → DART 회사 번호 (번호표는 한 번만 받아서 기억)
-def dart_corp(stock_code, api_key):
-    if not _DART_CORPS:
-        resp = http_get(f"{DART_URL}/corpCode.xml", {"crtfc_key": api_key})
+def download_dart_corps(api_key):
+    """Listed companies from DART's full corpCode.xml: {stock_code: (corp_code, corp_name)}."""
+    resp = http_get(f"{DART_URL}/corpCode.xml", {"crtfc_key": api_key}, timeout=600)
+    try:
+        xml_bytes = zipfile.ZipFile(io.BytesIO(resp.content)).read("CORPCODE.xml")
+    except zipfile.BadZipFile:
         try:
-            xml_bytes = zipfile.ZipFile(io.BytesIO(resp.content)).read("CORPCODE.xml")
-        except zipfile.BadZipFile:
-            try:
-                _dart_status(resp.json())
-            except ValueError:
-                pass
-            raise CollectError("DART 회사 번호표를 받지 못했어요. 키를 확인해 주세요") from None
-        for item in ET.fromstring(xml_bytes).iter("list"):
-            code = (item.findtext("stock_code") or "").strip()
-            if code:
-                _DART_CORPS[code] = (item.findtext("corp_code"), item.findtext("corp_name"))
+            _dart_status(resp.json())
+        except ValueError:
+            pass
+        raise CollectError("DART 회사 번호표를 받지 못했어요. 키를 확인해 주세요") from None
+    corps = {}
+    for item in ET.fromstring(xml_bytes).iter("list"):
+        code = (item.findtext("stock_code") or "").strip()
+        if code:
+            corps[code] = (item.findtext("corp_code"), item.findtext("corp_name"))
+    return corps
+
+
+def read_dart_corps(content):
+    # dtype=str keeps leading zeros: read as numbers, "000660" would become 660 and never match.
+    table = pd.read_csv(io.BytesIO(content), dtype=str, keep_default_na=False)
+    return {row.stock_code: (row.corp_code, row.corp_name) for row in table.itertuples(index=False)}
+
+
+# [1단계] 종목코드 → DART 회사 번호. 레포의 작은 상장사 표를 먼저 보고, 없을 때만 DART 전체 목록을 받음
+def dart_corp(stock_code, api_key):
+    if "repo" not in _DART_CORPS_LOADED:
+        _DART_CORPS_LOADED.add("repo")
+        try:
+            _DART_CORPS.update(read_dart_corps(http_get(REPO_RAW_URL + DART_CORPS_FILE, timeout=10).content))
+        except CollectError:
+            pass
+    if stock_code not in _DART_CORPS and "dart" not in _DART_CORPS_LOADED:
+        print("DART 회사 목록을 받는 중이에요. 처음 한 번, 몇 분 걸릴 수 있어요")
+        _DART_CORPS.update(download_dart_corps(api_key))
+        _DART_CORPS_LOADED.add("dart")
     if stock_code not in _DART_CORPS:
         raise CollectError(f"{stock_code}: 상장사 목록에 없어요. 종목코드 6자리를 확인해 주세요")
     return _DART_CORPS[stock_code]

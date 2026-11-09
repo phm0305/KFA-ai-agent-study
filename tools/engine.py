@@ -28,7 +28,7 @@ from urllib.parse import quote
 
 import pandas as pd
 
-from collect import REVIEW, CollectError, SkipStep, http_get, is_blank, now_kst
+from collect import REPO_RAW_URL, REVIEW, CollectError, SkipStep, http_get, is_blank, now_kst
 
 RID_PARTS = ["종목코드", "항목", "기준", "기준일", "출처"]
 SOURCE_KEY = ["출처", "출처 URL"]
@@ -333,7 +333,7 @@ def render_check(checked, metrics, sources, path):
     return path
 
 
-BACKUP_URL = "https://raw.githubusercontent.com/phm0305/KFA-ai-agent-study/main/backup/"
+BACKUP_URL = REPO_RAW_URL + "backup/"
 RETRY_CODES = (429, 500, 503)
 RETRY_WAITS = (5, 10, 20)
 CLAIM_RULES = """아래 글에서 숫자가 들어간 주장을 모두 찾아, 각 숫자의 근거를 공통 표나 지표 표에서 골라 줘.

@@ -78,6 +78,7 @@ DART_ROWS = [
 @pytest.fixture(autouse=True)
 def fresh_state():
     c._DART_CORPS.clear()
+    c._DART_CORPS_LOADED.clear()
     c.STEP_RESULTS.clear()
 
 
@@ -164,6 +165,29 @@ def test_dart_unknown_stock(monkeypatch):
     fake_web(monkeypatch, {"corpCode.xml": FakeResponse(content=corp_zip([("1", "A", "000001")]))})
     with pytest.raises(c.CollectError, match="상장사 목록에 없어요"):
         c.collect_dart("005930", 2026, 2, "CFS", SECRET)
+
+
+CORPS_CSV = "stock_code,corp_code,corp_name\n000660,00164779,SK하이닉스\n".encode()
+
+
+def test_dart_corp_from_repo_table_skips_dart(monkeypatch):
+    calls = fake_web(monkeypatch, {c.DART_CORPS_FILE: FakeResponse(content=CORPS_CSV)})
+    assert c.dart_corp("000660", SECRET) == ("00164779", "SK하이닉스")
+    assert c.dart_corp("000660", SECRET) == ("00164779", "SK하이닉스")
+    assert [url for url, _ in calls] == [c.REPO_RAW_URL + c.DART_CORPS_FILE]
+
+
+@pytest.mark.parametrize("repo", [FakeResponse(content=CORPS_CSV), requests.ConnectionError("offline")])
+def test_dart_corp_falls_back_to_dart(monkeypatch, capsys, repo):
+    calls = fake_web(monkeypatch, {
+        c.DART_CORPS_FILE: repo,
+        "corpCode.xml": FakeResponse(content=corp_zip([("00126380", "삼성전자", "005930")])),
+    })
+    assert c.dart_corp("005930", SECRET) == ("00126380", "삼성전자")
+    assert "DART 회사 목록을 받는 중이에요" in capsys.readouterr().out
+    with pytest.raises(c.CollectError, match="상장사 목록에 없어요"):
+        c.dart_corp("123456", SECRET)
+    assert sum("corpCode" in url for url, _ in calls) == 1
 
 
 def test_library_frame_with_datetime_index():

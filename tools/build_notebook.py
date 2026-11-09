@@ -15,7 +15,7 @@ ENGINE = (ROOT / "tools" / "engine.py").read_text(encoding="utf-8")
 
 # In the notebook these names already exist from the collect.py cell, and there is no
 # collect module to import. Matching the exact line makes any import change stop the build.
-COLLECT_IMPORT = "from collect import REVIEW, CollectError, SkipStep, http_get, is_blank, now_kst\n"
+COLLECT_IMPORT = "from collect import REPO_RAW_URL, REVIEW, CollectError, SkipStep, http_get, is_blank, now_kst\n"
 if ENGINE.count(COLLECT_IMPORT) != 1:
     raise SystemExit("engine.py's collect import changed; update COLLECT_IMPORT in build_notebook.py")
 ENGINE_CELL = ENGINE.replace(COLLECT_IMPORT, "")
